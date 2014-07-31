@@ -260,9 +260,10 @@ coreHelpers.tags = function (options) {
 //
 coreHelpers.content = function (options) {
     var truncateOptions = (options || {}).hash || {};
-    truncateOptions = _.pick(truncateOptions, ['words', 'characters']);
+    truncateOptions = _.pick(truncateOptions, ['words', 'characters', 'append']);
     _.keys(truncateOptions).map(function (key) {
-        truncateOptions[key] = parseInt(truncateOptions[key], 10);
+        var parsedInt;
+        if (parsedInt = _.parseInt(truncateOptions[key], 10)) truncateOptions[key] = parsedInt;
     });
 
     if (truncateOptions.hasOwnProperty('words') || truncateOptions.hasOwnProperty('characters')) {
@@ -295,11 +296,13 @@ coreHelpers.content = function (options) {
 //
 coreHelpers.excerpt = function (options) {
     var truncateOptions = (options || {}).hash || {},
-        excerpt;
+        excerpt,
+        downsizedExcerpt;
 
-    truncateOptions = _.pick(truncateOptions, ['words', 'characters']);
+    truncateOptions = _.pick(truncateOptions, ['words', 'characters', 'append']);
     _.keys(truncateOptions).map(function (key) {
-        truncateOptions[key] = parseInt(truncateOptions[key], 10);
+        var parsedInt;
+        if (parsedInt = _.parseInt(truncateOptions[key], 10)) truncateOptions[key] = parsedInt;
     });
 
     /*jslint regexp:true */
@@ -311,9 +314,22 @@ coreHelpers.excerpt = function (options) {
         truncateOptions.words = 50;
     }
 
-    return new hbs.handlebars.SafeString(
+    // Due to Downsize not appending to strings that do not contain HTML,
+    // the append string is manually appended to the .string property
+    // before returning.
+    // TODO: when downsize fixes this, remove this hack.
+    if (!truncateOptions.append) {
+        return new hbs.handlebars.SafeString(
+            downsize(excerpt, truncateOptions)
+        );
+    }
+
+    downsizedExcerpt = new hbs.handlebars.SafeString(
         downsize(excerpt, truncateOptions)
     );
+    downsizedExcerpt.string += truncateOptions.append;
+
+    return downsizedExcerpt;
 };
 
 // ### Filestorage helper

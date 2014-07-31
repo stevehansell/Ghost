@@ -171,6 +171,22 @@ describe('Core Helpers', function () {
             should.exist(rendered);
             rendered.string.should.equal('<p>Hello <strong>Wo</strong></p>');
         });
+
+        it('can append strings to truncated html', function () {
+            var html = '<p>Hello <strong>World! It\'s me!</strong></p>',
+                rendered = (
+                    helpers.content
+                        .call(
+                            {html: html},
+                            {'hash': {'characters': 8, 'append': '...'}}
+                        )
+                );
+
+            should.exist(rendered);
+            rendered.string.should.equal('<p>Hello <strong>Wo...</strong></p>');
+        });
+
+
     });
 
     describe('Author Helper', function () {
@@ -279,6 +295,21 @@ describe('Core Helpers', function () {
 
             should.exist(rendered);
             rendered.string.should.equal(expected);
+        });
+
+
+        it('can append strings to truncated html', function () {
+            var html = '<p>Hello <strong>World! It\'s me!</strong></p>',
+                rendered = (
+                    helpers.excerpt
+                        .call(
+                            {html: html},
+                            {'hash': {'characters': 8, 'append': '...'}}
+                        )
+                );
+
+            should.exist(rendered);
+            rendered.string.should.equal('Hello Wo...');
         });
     });
 
