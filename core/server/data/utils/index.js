@@ -1,66 +1,72 @@
 var _       = require('lodash'),
     when    = require('when'),
-    knex    = require('../../models/base').knex,
+    config  = require('../../config'),
     schema  = require('../schema').tables,
-    client  = require('../../models/base').client,
-    sqlite3 = require('./sqlite3'),
-    mysql   = require('./mysql'),
-    pgsql   = require('./pgsql');
+    clients = require('./clients'),
+
+    dbConfig;
+
 
 function addTableColumn(tablename, table, columnname) {
-    var column;
+    var column,
+        columnSpec = schema[tablename][columnname];
+
     // creation distinguishes between text with fieldtype, string with maxlength and all others
-    if (schema[tablename][columnname].type === 'text' && schema[tablename][columnname].hasOwnProperty('fieldtype')) {
-        column = table[schema[tablename][columnname].type](columnname, schema[tablename][columnname].fieldtype);
-    } else if (schema[tablename][columnname].type === 'string' && schema[tablename][columnname].hasOwnProperty('maxlength')) {
-        column = table[schema[tablename][columnname].type](columnname, schema[tablename][columnname].maxlength);
+    if (columnSpec.type === 'text' && columnSpec.hasOwnProperty('fieldtype')) {
+        column = table[columnSpec.type](columnname, columnSpec.fieldtype);
+    } else if (columnSpec.type === 'string' && columnSpec.hasOwnProperty('maxlength')) {
+        column = table[columnSpec.type](columnname, columnSpec.maxlength);
     } else {
-        column = table[schema[tablename][columnname].type](columnname);
+        column = table[columnSpec.type](columnname);
     }
 
-    if (schema[tablename][columnname].hasOwnProperty('nullable') && schema[tablename][columnname].nullable === true) {
+    if (columnSpec.hasOwnProperty('nullable') && columnSpec.nullable === true) {
         column.nullable();
     } else {
         column.notNullable();
     }
-    if (schema[tablename][columnname].hasOwnProperty('primary') && schema[tablename][columnname].primary === true) {
+    if (columnSpec.hasOwnProperty('primary') && columnSpec.primary === true) {
         column.primary();
     }
-    if (schema[tablename][columnname].hasOwnProperty('unique') && schema[tablename][columnname].unique) {
+    if (columnSpec.hasOwnProperty('unique') && columnSpec.unique) {
         column.unique();
     }
-    if (schema[tablename][columnname].hasOwnProperty('unsigned') && schema[tablename][columnname].unsigned) {
+    if (columnSpec.hasOwnProperty('unsigned') && columnSpec.unsigned) {
         column.unsigned();
     }
-    if (schema[tablename][columnname].hasOwnProperty('references')) {
+    if (columnSpec.hasOwnProperty('references')) {
         //check if table exists?
-        column.references(schema[tablename][columnname].references);
+        column.references(columnSpec.references);
     }
-    if (schema[tablename][columnname].hasOwnProperty('defaultTo')) {
-        column.defaultTo(schema[tablename][columnname].defaultTo);
+    if (columnSpec.hasOwnProperty('defaultTo')) {
+        column.defaultTo(columnSpec.defaultTo);
     }
 }
 
 function addColumn(table, column) {
-    return knex.schema.table(table, function (t) {
+    dbConfig = dbConfig || config.database;
+    return dbConfig.knex.schema.table(table, function (t) {
         addTableColumn(table, t, column);
     });
 }
 
 function addUnique(table, column) {
-    return knex.schema.table(table, function (table) {
+    dbConfig = dbConfig || config.database;
+    return dbConfig.knex.schema.table(table, function (table) {
         table.unique(column);
     });
 }
 
 function dropUnique(table, column) {
-    return knex.schema.table(table, function (table) {
+    dbConfig = dbConfig || config.database;
+    return dbConfig.knex.schema.table(table, function (table) {
         table.dropUnique(column);
     });
 }
 
 function createTable(table) {
-    return knex.schema.createTable(table, function (t) {
+    dbConfig = dbConfig || config.database;
+    return dbConfig.knex.schema.createTable(table, function (t) {
         var columnKeys = _.keys(schema[table]);
         _.each(columnKeys, function (column) {
             return addTableColumn(table, t, column);
@@ -69,49 +75,54 @@ function createTable(table) {
 }
 
 function deleteTable(table) {
-    return knex.schema.dropTableIfExists(table);
+    dbConfig = dbConfig || config.database;
+    return dbConfig.knex.schema.dropTableIfExists(table);
 }
 
 function getTables() {
-    if (client === 'sqlite3') {
-        return sqlite3.getTables();
+    dbConfig = dbConfig || config.database;
+    var client = dbConfig.client;
+
+    if (_.contains(_.keys(clients), client)) {
+        return clients[client].getTables();
     }
-    if (client === 'mysql') {
-        return mysql.getTables();
-    }
-    if (client === 'pg') {
-        return pgsql.getTables();
-    }
-    return when.reject("No support for database client " + client);
+
+    return when.reject('No support for database client ' + client);
 }
 
 function getIndexes(table) {
-    if (client === 'sqlite3') {
-        return sqlite3.getIndexes(table);
+    dbConfig = dbConfig || config.database;
+    var client = dbConfig.client;
+
+    if (_.contains(_.keys(clients), client)) {
+        return clients[client].getIndexes(table);
     }
-    if (client === 'mysql') {
-        return mysql.getIndexes(table);
-    }
-    if (client === 'pg') {
-        return pgsql.getIndexes(table);
-    }
-    return when.reject("No support for database client " + client);
+
+    return when.reject('No support for database client ' + client);
 }
 
 function getColumns(table) {
-    if (client === 'sqlite3') {
-        return sqlite3.getColumns(table);
+    dbConfig = dbConfig || config.database;
+    var client = dbConfig.client;
+
+    if (_.contains(_.keys(clients), client)) {
+        return clients[client].getColumns(table);
     }
+
+    return when.reject('No support for database client ' + client);
+}
+
+function checkTables() {
+    dbConfig = dbConfig || config.database;
+    var client = dbConfig.client;
+
     if (client === 'mysql') {
-        return mysql.getColumns(table);
+        return clients[client].checkPostTable();
     }
-    if (client === 'pg') {
-        return pgsql.getColumns(table);
-    }
-    return when.reject("No support for database client " + client);
 }
 
 module.exports = {
+    checkTables: checkTables,
     createTable: createTable,
     deleteTable: deleteTable,
     getTables: getTables,

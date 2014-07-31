@@ -1,11 +1,15 @@
-import AuthenticatedRoute from 'ghost/routes/authenticated';
-import styleBody from 'ghost/mixins/style-body';
+import base from 'ghost/mixins/editor-route-base';
 
-var EditorNewRoute = AuthenticatedRoute.extend(styleBody, {
+var EditorNewRoute = Ember.Route.extend(SimpleAuth.AuthenticatedRouteMixin, base, {
     classNames: ['editor'],
 
     model: function () {
-        return this.store.createRecord('post');
+        var self = this;
+        return this.get('session.user').then(function (user) {
+            return self.store.createRecord('post', {
+                author: user
+            });
+        });
     },
 
     setupController: function (controller, model) {
@@ -14,6 +18,9 @@ var EditorNewRoute = AuthenticatedRoute.extend(styleBody, {
 
         // used to check if anything has changed in the editor
         controller.set('previousTagNames', Ember.A());
+
+        // attach model-related listeners created in editor-route-base
+        this.attachModelHooks(controller, model);
     },
 
     actions: {
@@ -46,6 +53,9 @@ var EditorNewRoute = AuthenticatedRoute.extend(styleBody, {
 
             // since the transition is now certain to complete..
             window.onbeforeunload = null;
+
+            // remove model-related listeners created in editor-route-base
+            this.detachModelHooks(controller, model);
         }
     }
 });

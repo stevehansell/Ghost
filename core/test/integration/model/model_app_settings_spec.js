@@ -1,43 +1,19 @@
 /*globals describe, before, beforeEach, afterEach, it*/
-var testUtils = require('../../utils'),
-    should = require('should'),
-    _ = require("lodash"),
+/*jshint expr:true*/
+var testUtils       = require('../../utils'),
+    should          = require('should'),
 
     // Stuff we are testing
-    Models = require('../../../server/models'),
-    knex = require('../../../server/models/base').knex;
+    AppSettingModel = require('../../../server/models').AppSetting,
+    context         = testUtils.context.admin;
 
 describe('App Setting Model', function () {
+    // Keep the DB clean
+    before(testUtils.teardown);
+    afterEach(testUtils.teardown);
+    beforeEach(testUtils.setup('app_setting'));
 
-    var AppSettingModel = Models.AppSetting;
-
-    before(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
-
-    beforeEach(function (done) {
-        testUtils.initData()
-            .then(function () {
-                return testUtils.insertAppWithSettings();
-            })
-            .then(function () {
-                done();
-            }).catch(done);
-    });
-
-    afterEach(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
-
-    after(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
+    should.exist(AppSettingModel);
 
     it('can findAll', function (done) {
         AppSettingModel.findAll().then(function (results) {
@@ -54,6 +30,8 @@ describe('App Setting Model', function () {
         AppSettingModel.findOne({id: 1}).then(function (foundAppSetting) {
             should.exist(foundAppSetting);
 
+            foundAppSetting.get('created_at').should.be.an.instanceof(Date);
+
             done();
         }).catch(done);
     });
@@ -62,13 +40,13 @@ describe('App Setting Model', function () {
         AppSettingModel.findOne({id: 1}).then(function (foundAppSetting) {
             should.exist(foundAppSetting);
 
-            return foundAppSetting.set({value: "350"}).save();
+            return foundAppSetting.set({value: '350'}).save(null, context);
         }).then(function () {
             return AppSettingModel.findOne({id: 1});
         }).then(function (updatedAppSetting) {
             should.exist(updatedAppSetting);
 
-            updatedAppSetting.get("value").should.equal("350");
+            updatedAppSetting.get('value').should.equal('350');
 
             done();
         }).catch(done);

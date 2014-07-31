@@ -1,26 +1,24 @@
-import ajax from 'ghost/utils/ajax';
 import styleBody from 'ghost/mixins/style-body';
-import AuthenticatedRoute from 'ghost/routes/authenticated';
+import loadingIndicator from 'ghost/mixins/loading-indicator';
+import ghostPaths from 'ghost/utils/ghost-paths';
 
-var SignoutRoute = AuthenticatedRoute.extend(styleBody, {
+var SignoutRoute = Ember.Route.extend(SimpleAuth.AuthenticatedRouteMixin, styleBody, loadingIndicator, {
     classNames: ['ghost-signout'],
 
-    beforeModel: function () {
-        var self = this;
+    afterModel: function (model, transition) {
+        this.notifications.clear();
+        if (Ember.canInvoke(transition, 'send')) {
+            transition.send('invalidateSession');
+            transition.abort();
+        } else {
+            this.send('invalidateSession');
+        }
 
-        ajax({
-            url: this.get('ghostPaths').adminUrl('signout'),
-            type: 'POST',
-            headers: {
-                'X-CSRF-Token': this.get('csrf')
-            }
-        }).then(function () {
-            self.notifications.showSuccess('You were successfully signed out.');
-            self.transitionTo('signin');
-        }, function (resp) {
-            self.notifications.showAPIError(resp, 'There was a problem logging out, please try again.');
-            self.transitionTo('posts');
-        });
+        this.hardRefresh();
+    },
+
+    hardRefresh: function () {
+        window.location = ghostPaths().adminRoot + '/signin/';
     }
 });
 

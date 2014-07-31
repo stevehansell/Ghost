@@ -1,7 +1,11 @@
 /*global CodeMirror */
 
 import MarkerManager from 'ghost/mixins/marker-manager';
+import mobileCodeMirror from 'ghost/utils/codemirror-mobile';
 import setScrollClassName from 'ghost/utils/set-scroll-classname';
+import codeMirrorShortcuts from 'ghost/utils/codemirror-shortcuts';
+
+codeMirrorShortcuts.init();
 
 var onChangeHandler = function (cm, changeObj) {
     var line,
@@ -17,7 +21,7 @@ var onChangeHandler = function (cm, changeObj) {
     // Is this a line which may have had a marker on it?
     checkMarkers();
 
-    cm.component.set('value', cm.getDoc().getValue());
+    cm.component.set('value', cm.getValue());
 };
 
 var onScrollHandler = function (cm) {
@@ -40,9 +44,18 @@ var Codemirror = Ember.TextArea.extend(MarkerManager, {
     afterRenderEvent: function () {
         var initMarkers = _.bind(this.initMarkers, this);
 
+        // Allow tabbing behaviour when viewing on small screen (not mobile)
+        $('.floatingheader').on('click', function () {
+            $('.entry-markdown').toggleClass('active');
+            $('.entry-preview').toggleClass('active');
+        });
+
+        // replaces CodeMirror with TouchEditor only if we're on mobile
+        mobileCodeMirror.createIfMobile();
+
         this.initCodemirror();
         this.codemirror.eachLine(initMarkers);
-        this.sendAction('action', this);
+        this.sendAction('setCodeMirror', this);
     },
 
     // this needs to be placed on the 'afterRender' queue otherwise CodeMirror gets wonky

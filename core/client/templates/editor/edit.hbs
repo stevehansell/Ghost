@@ -1,6 +1,6 @@
 <header>
     <section class="box entry-title">
-        {{input type="text" id="entry-title" placeholder="Your Post Title" value=title tabindex="1"}}
+        {{gh-trim-focus-input type="text" id="entry-title" placeholder="Your Post Title" value=titleScratch tabindex="1"}}
     </section>
 </header>
 
@@ -10,7 +10,7 @@
         <a class="markdown-help" href="" {{action "openModal" "markdown"}}><span class="hidden">What is Markdown?</span></a>
     </header>
     <section id="entry-markdown-content" class="entry-markdown-content">
-        {{gh-codemirror value=scratch scrollInfo=view.markdownScrollInfo action="setCodeMirror"}}
+        {{gh-codemirror value=scratch scrollInfo=view.markdownScrollInfo setCodeMirror="setCodeMirror"}}
     </section>
 </section>
 

@@ -1,19 +1,43 @@
-/*global console, alert */
+/* jshint unused: false */
+import ajax from 'ghost/utils/ajax';
+import ValidationEngine from 'ghost/mixins/validation-engine';
 
-var ForgottenController = Ember.Controller.extend({
+var ForgottenController = Ember.Controller.extend(ValidationEngine, {
     email: '',
+    submitting: false,
+
+    // ValidationEngine settings
+    validationType: 'forgotten',
+
     actions: {
         submit: function () {
-            var self = this;
-            self.user.fetchForgottenPasswordFor(this.email)
-                .then(function () {
-                    alert('@TODO Notification: Success');
+            var self = this,
+                data = self.getProperties('email');
+
+            this.toggleProperty('submitting');
+            this.validate({ format: false }).then(function () {
+                ajax({
+                    url: self.get('ghostPaths.url').api('authentication', 'passwordreset'),
+                    type: 'POST',
+                    data: {
+                        passwordreset: [{
+                            email: data.email
+                        }]
+                    }
+                }).then(function (resp) {
+                    self.toggleProperty('submitting');
+                    self.notifications.showSuccess('Please check your email for instructions.');
                     self.transitionToRoute('signin');
-                })
-                .catch(function (response) {
-                    alert('@TODO');
-                    console.log(response);
+                }).catch(function (resp) {
+                    self.toggleProperty('submitting');
+                    self.notifications.closePassive();
+                    self.notifications.showAPIError(resp, 'There was a problem logging in, please try again.');
                 });
+            }).catch(function (errors) {
+                self.toggleProperty('submitting');
+                self.notifications.closePassive();
+                self.notifications.showErrors(errors);
+            });
         }
     }
 });

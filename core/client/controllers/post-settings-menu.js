@@ -10,24 +10,38 @@ var PostSettingsMenuController = Ember.ObjectController.extend({
         // when creating a new post we want to observe the title
         // to generate the post's slug
         if (this.get('isNew')) {
-            this.addObserver('title', this, 'titleObserver');
+            this.addObserver('titleScratch', this, 'titleObserver');
         }
     },
-    isStaticPage: function (key, val) {
-        var self = this;
-
-        if (arguments.length > 1) {
-            this.set('page', val);
-
-            return this.get('model').save().then(function () {
-                self.notifications.showSuccess('Successfully converted to ' + (val ? 'static page' : 'post'));
-
-                return self.get('page');
-            }, this.notifications.showErrors);
+    selectedAuthor: Ember.computed.oneWay('author'),
+    changeAuthor: function () {
+        var author = this.get('author'),
+            selectedAuthor = this.get('selectedAuthor'),
+            model = this.get('model'),
+            self = this;
+        //return if nothing changed
+        if (selectedAuthor.get('id') === author.get('id')) {
+            return;
         }
-
-        return this.get('page');
-    }.property('page'),
+        model.set('author', selectedAuthor);
+        model.save(this.get('saveOptions')).catch(function (errors) {
+            self.showErrors(errors);
+            self.set('selectedAuthor', author);
+            model.rollback();
+        });
+    }.observes('selectedAuthor'),
+    authors: function () {
+        //Loaded asynchronously, so must use promise proxies.
+        var deferred = {};
+        deferred.promise = this.store.find('user').then(function (users) {
+            return users.rejectBy('id', 'me');
+        });
+        return Ember.ArrayProxy
+            .extend(Ember.PromiseProxyMixin)
+            .create(deferred);
+    }.property(),
+    //Changes in the PSM are too minor to warrant NProgress firing
+    saveOptions: {disableNProgress: true},
     /**
      * The placeholder is the published date of the post,
      * or the current date if the pubdate has not been set.
@@ -44,19 +58,22 @@ var PostSettingsMenuController = Ember.ObjectController.extend({
     slugValue: boundOneWay('slug'),
     //Lazy load the slug generator for slugPlaceholder
     slugGenerator: Ember.computed(function () {
-        return SlugGenerator.create({ghostPaths: this.get('ghostPaths')});
+        return SlugGenerator.create({
+            ghostPaths: this.get('ghostPaths'),
+            slugType: 'post'
+        });
     }),
     //Requests slug from title
     generateSlugPlaceholder: function () {
         var self = this,
-            slugGenerator = this.get('slugGenerator'),
-            title = this.get('title');
-        slugGenerator.generateSlug(title).then(function (slug) {
+            title = this.get('titleScratch');
+
+        this.get('slugGenerator').generateSlug(title).then(function (slug) {
             self.set('slugPlaceholder', slug);
         });
     },
     titleObserver: function () {
-        if (this.get('isNew') && this.get('model').changedAttributes().hasOwnProperty('title')) {
+        if (this.get('isNew') && !this.get('title')) {
             Ember.run.debounce(this, 'generateSlugPlaceholder', 700);
         }
     },
@@ -74,10 +91,34 @@ var PostSettingsMenuController = Ember.ObjectController.extend({
             return value;
         }
         //The title will stand in until the actual slug has been generated
-        return this.get('title');
+        return this.get('titleScratch');
     }.property(),
 
+    showErrors: function (errors) {
+        errors = Ember.isArray(errors) ? errors : [errors];
+        this.notifications.closePassive();
+        this.notifications.showErrors(errors);
+    },
+    showSuccess: function (message) {
+        this.notifications.closePassive();
+        this.notifications.showSuccess(message);
+    },
     actions: {
+        togglePage: function () {
+            var self = this;
+
+            this.toggleProperty('page');
+            // If this is a new post.  Don't save the model.  Defer the save
+            // to the user pressing the save button
+            if (this.get('isNew')) {
+                return;
+            }
+
+            this.get('model').save(this.get('saveOptions')).catch(function (errors) {
+                self.showErrors(errors);
+                self.get('model').rollback();
+            });
+        },
         /**
          * triggered by user manually changing slug
          */
@@ -103,7 +144,7 @@ var PostSettingsMenuController = Ember.ObjectController.extend({
 
                 // Because the server transforms the candidate slug by stripping
                 // certain characters and appending a number onto the end of slugs
-                // to enforce uniqueness, there are cases where we can get back a 
+                // to enforce uniqueness, there are cases where we can get back a
                 // candidate slug that is a duplicate of the original except for
                 // the trailing incrementor (e.g., this-is-a-slug and this-is-a-slug-2)
 
@@ -121,8 +162,8 @@ var PostSettingsMenuController = Ember.ObjectController.extend({
 
                 self.set('slug', serverSlug);
 
-                if (self.hasObserverFor('title')) {
-                    self.removeObserver('title', self, 'titleObserver');
+                if (self.hasObserverFor('titleScratch')) {
+                    self.removeObserver('titleScratch', self, 'titleObserver');
                 }
 
                 // If this is a new post.  Don't save the model.  Defer the save
@@ -131,11 +172,13 @@ var PostSettingsMenuController = Ember.ObjectController.extend({
                     return;
                 }
 
-                // Save post model properties excluding any changes to the post body
-                return self.get('model').save().then(function () {
-                    self.notifications.showSuccess('Permalink successfully changed to <strong>' +
-                        self.get('slug') + '</strong>.');
-                }, self.notifications.showErrors);
+                return self.get('model').save(self.get('saveOptions'));
+            }).then(function () {
+                self.showSuccess('Permalink successfully changed to <strong>' +
+                    self.get('slug') + '</strong>.');
+            }).catch(function (errors) {
+                self.showErrors(errors);
+                self.get('model').rollback();
             });
         },
 
@@ -158,37 +201,39 @@ var PostSettingsMenuController = Ember.ObjectController.extend({
                 return;
             }
 
-            // Do nothing if the user didn't actually change the date
-            if (publishedAt && publishedAt.isSame(newPublishedAt)) {
-                return;
-            }
-
             // Validate new Published date
             if (!newPublishedAt.isValid()) {
                 errMessage = 'Published Date must be a valid date with format: ' +
                     'DD MMM YY @ HH:mm (e.g. 6 Dec 14 @ 15:00)';
             }
-
-            //Can't publish in the future yet
             if (newPublishedAt.diff(new Date(), 'h') > 0) {
                 errMessage = 'Published Date cannot currently be in the future.';
             }
 
             //If errors, notify and exit.
             if (errMessage) {
-                this.notifications.showError(errMessage);
+                this.showErrors(errMessage);
+                return;
+            }
+
+            // Do nothing if the user didn't actually change the date
+            if (publishedAt && publishedAt.isSame(newPublishedAt)) {
                 return;
             }
 
             //Validation complete
             this.set('published_at', newPublishedAt);
 
-            //@ TODO: Make sure we're saving ONLY the publish date here,
-            // Don't want to accidentally save text the user's been working on.
-            this.get('model').save('published_at').then(function () {
-                self.notifications.showSuccess('Publish date successfully changed to <strong>' +
-                    formatDate(self.get('published_at')) + '</strong>.');
-            }, this.notifications.showErrors);
+            // If this is a new post.  Don't save the model.  Defer the save
+            // to the user pressing the save button
+            if (this.get('isNew')) {
+                return;
+            }
+
+            this.get('model').save(this.get('saveOptions')).catch(function (errors) {
+                self.showErrors(errors);
+                self.get('model').rollback();
+            });
         }
     }
 });

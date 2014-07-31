@@ -1,27 +1,49 @@
-var ApplicationRoute = Ember.Route.extend({
+import ShortcutsRoute from 'ghost/mixins/shortcuts-route';
+
+var ApplicationRoute = Ember.Route.extend(SimpleAuth.ApplicationRouteMixin, ShortcutsRoute, {
+
+    shortcuts: {
+        'esc': 'closePopups'
+    },
+
     actions: {
-        signedIn: function (user) {
-            // Update the user on all routes and controllers
-            this.container.unregister('user:current');
-            this.container.register('user:current', user, { instantiate: false });
+        closePopups: function () {
+            this.get('popover').closePopovers();
+            this.get('notifications').closeAll();
 
-            this.container.injection('route', 'user', 'user:current');
-            this.container.injection('controller', 'user', 'user:current');
-
-            this.set('user', user);
-            this.set('controller.user', user);
+            this.send('closeModal');
         },
 
-        signedOut: function () {
-            // Nullify the user on all routes and controllers
-            this.container.unregister('user:current');
-            this.container.register('user:current', null, { instantiate: false });
+        signedIn: function () {
+            this.send('loadServerNotifications', true);
+        },
 
-            this.container.injection('route', 'user', 'user:current');
-            this.container.injection('controller', 'user', 'user:current');
+        sessionAuthenticationFailed: function (error) {
+            this.notifications.closePassive();
+            this.notifications.showError(error.message);
+        },
 
-            this.set('user', null);
-            this.set('controller.user', null);
+        sessionAuthenticationSucceeded: function () {
+            var self = this;
+            this.store.find('user', 'me').then(function (user) {
+                self.send('signedIn', user);
+                var attemptedTransition = self.get('session').get('attemptedTransition');
+                if (attemptedTransition) {
+                    attemptedTransition.retry();
+                    self.get('session').set('attemptedTransition', null);
+                } else {
+                    self.transitionTo(SimpleAuth.Configuration.routeAfterAuthentication);
+                }
+            });
+        },
+
+        sessionInvalidationFailed: function (error) {
+            this.notifications.closePassive();
+            this.notifications.showError(error.message);
+        },
+
+        sessionInvalidationSucceeded: function () {
+            this.notifications.showSuccess('You were successfully signed out.', true);
         },
 
         openModal: function (modalName, model, type) {
@@ -47,6 +69,17 @@ var ApplicationRoute = Ember.Route.extend({
                 outlet: 'modal',
                 parentView: 'application'
             });
+        },
+
+        loadServerNotifications: function (isDelayed) {
+            var self = this;
+            if (this.session.isAuthenticated) {
+                this.store.findAll('notification').then(function (serverNotifications) {
+                    serverNotifications.forEach(function (notification) {
+                        self.notifications.handleNotification(notification, isDelayed);
+                    });
+                });
+            }
         },
 
         handleErrors: function (errors) {

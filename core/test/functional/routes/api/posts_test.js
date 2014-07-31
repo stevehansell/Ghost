@@ -1,91 +1,54 @@
 /*global describe, it, before, after */
-var supertest     = require('supertest'),
-    express       = require('express'),
+/*jshint expr:true*/
+var testUtils     = require('../../../utils'),
     should        = require('should'),
+    supertest     = require('supertest'),
+    express       = require('express'),
     _             = require('lodash'),
-    testUtils     = require('../../../utils'),
 
     ghost         = require('../../../../../core'),
 
     httpServer,
-    request,
-    agent;
+    request;
 
 
 describe('Post API', function () {
-    var user = testUtils.DataGenerator.forModel.users[0],
-        csrfToken = '';
+    var accesstoken = '';
 
     before(function (done) {
         var app = express();
+            app.set('disableLoginLimiter', true);
 
+        // starting ghost automatically populates the db
+        // TODO: prevent db init, and manage bringing up the DB with fixtures ourselves
         ghost({app: app}).then(function (_httpServer) {
             httpServer = _httpServer;
-
             request = supertest.agent(app);
 
-            testUtils.clearData()
-                .then(function () {
-                    return testUtils.initData();
-                })
-                .then(function () {
-                    return testUtils.insertDefaultFixtures();
-                })
-                .then(function () {
-
-                    request.get('/ghost/signin/')
-                        .expect(200)
-                        .end(function (err, res) {
-                            if (err) {
-                                return done(err);
-                            }
-                            var pattern_meta = /<meta.*?name="csrf-param".*?content="(.*?)".*?>/i;
-                            pattern_meta.should.exist;
-                            csrfToken = res.text.match(pattern_meta)[1];
-
-                            process.nextTick(function() {
-                                request.post('/ghost/signin/')
-                                    .set('X-CSRF-Token', csrfToken)
-                                    .send({email: user.email, password: user.password})
-                                    .expect(200)
-                                    .end(function (err, res) {
-                                        if (err) {
-                                            return done(err);
-                                        }
-
-
-                                        request.saveCookies(res);
-                                        request.get('/ghost/')
-                                            .expect(200)
-                                            .end(function (err, res) {
-                                                if (err) {
-                                                    return done(err);
-                                                }
-
-                                                csrfToken = res.text.match(pattern_meta)[1];
-                                                done();
-                                            });
-                                    });
-
-                            });
-
-                        });
-                }).catch(done);
+        }).then(function () {
+            return testUtils.doAuth(request, 'posts');
+        }).then(function (token) {
+            accesstoken = token;
+            done();
         }).catch(function (e) {
             console.log('Ghost Error: ', e);
             console.log(e.stack);
         });
     });
 
-    after(function () {
-        httpServer.close();
+    after(function (done) {
+        testUtils.clearData().then(function () {
+            httpServer.close();
+            done();
+        });
     });
-
 
     describe('Browse', function () {
 
         it('retrieves all published posts only by default', function (done) {
             request.get(testUtils.API.getApiQuery('posts/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(200)
                 .end(function (err, res) {
                     if (err) {
@@ -93,7 +56,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.posts.should.exist;
                     testUtils.API.checkResponse(jsonResponse, 'posts');
@@ -108,6 +70,8 @@ describe('Post API', function () {
 
         it('can retrieve all published posts and pages', function (done) {
             request.get(testUtils.API.getApiQuery('posts/?staticPages=all'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(200)
                 .end(function (err, res) {
                     if (err) {
@@ -115,7 +79,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.posts.should.exist;
                     testUtils.API.checkResponse(jsonResponse, 'posts');
@@ -131,6 +94,8 @@ describe('Post API', function () {
 
         it('can retrieve all status posts and pages', function (done) {
             request.get(testUtils.API.getApiQuery('posts/?staticPages=all&status=all'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(200)
                 .end(function (err, res) {
                     if (err) {
@@ -138,7 +103,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.posts.should.exist;
                     testUtils.API.checkResponse(jsonResponse, 'posts');
@@ -151,6 +115,8 @@ describe('Post API', function () {
 
         it('can retrieve just published pages', function (done) {
             request.get(testUtils.API.getApiQuery('posts/?staticPages=true'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(200)
                 .end(function (err, res) {
                     if (err) {
@@ -158,7 +124,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.posts.should.exist;
                     testUtils.API.checkResponse(jsonResponse, 'posts');
@@ -171,6 +136,8 @@ describe('Post API', function () {
 
         it('can retrieve just draft posts', function (done) {
             request.get(testUtils.API.getApiQuery('posts/?status=draft'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(200)
                 .end(function (err, res) {
                     if (err) {
@@ -178,7 +145,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.posts.should.exist;
                     testUtils.API.checkResponse(jsonResponse, 'posts');
@@ -195,6 +161,8 @@ describe('Post API', function () {
     describe('Read', function () {
         it('can retrieve a post by id', function (done) {
             request.get(testUtils.API.getApiQuery('posts/1/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -202,7 +170,6 @@ describe('Post API', function () {
 
                     res.should.have.status(200);
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.posts.should.exist;
@@ -212,6 +179,7 @@ describe('Post API', function () {
                     _.isBoolean(jsonResponse.posts[0].featured).should.eql(true);
                     _.isBoolean(jsonResponse.posts[0].page).should.eql(true);
                     jsonResponse.posts[0].author.should.be.a.Number;
+                    testUtils.API.isISO8601(jsonResponse.posts[0].created_at).should.be.true;
                     jsonResponse.posts[0].created_by.should.be.a.Number;
                     jsonResponse.posts[0].tags[0].should.be.a.Number;
                     done();
@@ -219,7 +187,9 @@ describe('Post API', function () {
         });
 
         it('can retrieve a post by slug', function (done) {
-            request.get(testUtils.API.getApiQuery('posts/welcome-to-ghost/'))
+            request.get(testUtils.API.getApiQuery('posts/slug/welcome-to-ghost/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -227,7 +197,6 @@ describe('Post API', function () {
 
                     res.should.have.status(200);
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.posts.should.exist;
@@ -245,6 +214,8 @@ describe('Post API', function () {
 
         it('can retrieve a post with author, created_by, and tags', function (done) {
             request.get(testUtils.API.getApiQuery('posts/1/?include=author,tags,created_by'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -252,7 +223,6 @@ describe('Post API', function () {
 
                     res.should.have.status(200);
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.posts.should.exist;
@@ -269,6 +239,8 @@ describe('Post API', function () {
 
         it('can retrieve a static page', function (done) {
             request.get(testUtils.API.getApiQuery('posts/7/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(200)
                 .end(function (err, res) {
                     if (err) {
@@ -276,7 +248,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.posts.should.exist;
@@ -289,6 +260,8 @@ describe('Post API', function () {
 
         it('can\'t retrieve non existent post', function (done) {
             request.get(testUtils.API.getApiQuery('posts/99/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(404)
                 .end(function (err, res) {
                     if (err) {
@@ -296,7 +269,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.errors.should.exist;
@@ -307,6 +279,8 @@ describe('Post API', function () {
 
         it('can\'t retrieve a draft post', function (done) {
             request.get(testUtils.API.getApiQuery('posts/5/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(404)
                 .end(function (err, res) {
                     if (err) {
@@ -314,7 +288,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.errors.should.exist;
@@ -325,6 +298,8 @@ describe('Post API', function () {
 
         it('can\'t retrieve a draft page', function (done) {
             request.get(testUtils.API.getApiQuery('posts/8/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(404)
                 .end(function (err, res) {
                     if (err) {
@@ -332,7 +307,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.errors.should.exist;
@@ -353,15 +327,15 @@ describe('Post API', function () {
                 newPost = {posts: [{status: 'draft', title: newTitle, markdown: 'my post', tags: [newTag]}]};
 
             request.post(testUtils.API.getApiQuery('posts/?include=tags'))
-                .set('X-CSRF-Token', csrfToken)
+                .set('Authorization', 'Bearer ' + accesstoken)
                 .send(newPost)
+                .expect('Content-Type', /json/)
                 .expect(201)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
                     }
 
-                    res.should.be.json;
                     var draftPost = res.body;
                     res.headers['location'].should.equal('/ghost/api/v0.1/posts/' + draftPost.posts[0].id + '/?status=draft');
                     draftPost.posts.should.exist;
@@ -376,8 +350,9 @@ describe('Post API', function () {
                     testUtils.API.checkResponse(draftPost.posts[0].tags[0], 'tag');
 
                     request.put(testUtils.API.getApiQuery('posts/' + draftPost.posts[0].id + '/?include=tags'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(draftPost)
+                        .expect('Content-Type', /json/)
                         .expect(200)
                         .end(function (err, res) {
                             if (err) {
@@ -387,7 +362,6 @@ describe('Post API', function () {
                             var publishedPost = res.body;
                             _.has(res.headers, 'x-cache-invalidate').should.equal(true);
                             res.headers['x-cache-invalidate'].should.eql('/, /page/*, /rss/, /rss/*, /tag/*, /' + publishedPost.posts[0].slug + '/');
-                            res.should.be.json;
 
                             publishedPost.should.exist;
                             publishedPost.posts.should.exist;
@@ -402,8 +376,9 @@ describe('Post API', function () {
                             testUtils.API.checkResponse(publishedPost.posts[0].tags[0], 'tag');
 
                             request.put(testUtils.API.getApiQuery('posts/' + publishedPost.posts[0].id + '/?include=tags'))
-                                .set('X-CSRF-Token', csrfToken)
+                                .set('Authorization', 'Bearer ' + accesstoken)
                                 .send(publishedPost)
+                                .expect('Content-Type', /json/)
                                 .expect(200)
                                 .end(function (err, res) {
                                     if (err) {
@@ -413,12 +388,13 @@ describe('Post API', function () {
                                     var updatedPost = res.body;
                                     // Require cache invalidation when post was updated and published
                                     _.has(res.headers, 'x-cache-invalidate').should.equal(true);
-                                    res.should.be.json;
 
                                     updatedPost.should.exist;
                                     updatedPost.posts.should.exist;
                                     updatedPost.posts.length.should.be.above(0);
                                     updatedPost.posts[0].title.should.eql(newTitle);
+                                    testUtils.API.isISO8601(updatedPost.posts[0].created_at).should.be.true;
+                                    testUtils.API.isISO8601(updatedPost.posts[0].updated_at).should.be.true;
                                     testUtils.API.checkResponse(updatedPost.posts[0], 'post');
 
                                     updatedPost.posts[0].tags.should.exist;
@@ -439,19 +415,24 @@ describe('Post API', function () {
     describe('Edit', function () {
         it('can edit a post', function (done) {
             request.get(testUtils.API.getApiQuery('posts/1/?include=tags'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
                     }
 
                     var jsonResponse = res.body,
-                        changedValue = 'My new Title';
+                        changedTitle = 'My new Title',
+                        changedAuthor = 2;
                     jsonResponse.posts[0].should.exist;
-                    jsonResponse.posts[0].title = changedValue;
+                    jsonResponse.posts[0].title = changedTitle;
+                    jsonResponse.posts[0].author = changedAuthor;
 
                     request.put(testUtils.API.getApiQuery('posts/1/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(jsonResponse)
+                        .expect('Content-Type', /json/)
                         .expect(200)
                         .end(function (err, res) {
                             if (err) {
@@ -460,9 +441,9 @@ describe('Post API', function () {
 
                             var putBody = res.body;
                             _.has(res.headers, 'x-cache-invalidate').should.equal(true);
-                            res.should.be.json;
                             putBody.should.exist;
-                            putBody.posts[0].title.should.eql(changedValue);
+                            putBody.posts[0].title.should.eql(changedTitle);
+                            putBody.posts[0].author.should.eql(changedAuthor);
 
                             testUtils.API.checkResponse(putBody.posts[0], 'post');
                             done();
@@ -478,15 +459,15 @@ describe('Post API', function () {
                 newPost = {posts: [{status: 'draft', title: newTitle, markdown: 'my post', tags: [newTag]}]};
 
             request.post(testUtils.API.getApiQuery('posts/?include=tags'))
-                .set('X-CSRF-Token', csrfToken)
+                .set('Authorization', 'Bearer ' + accesstoken)
                 .send(newPost)
+                .expect('Content-Type', /json/)
                 .expect(201)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
                     }
 
-                    res.should.be.json;
                     var draftPost = res.body;
                     res.headers['location'].should.equal('/ghost/api/v0.1/posts/' + draftPost.posts[0].id + '/?status=draft');
                     draftPost.posts.should.exist;
@@ -497,8 +478,9 @@ describe('Post API', function () {
                     draftPost.posts[0].title = 'Vote for Casper in red';
 
                     request.put(testUtils.API.getApiQuery('posts/' + draftPost.posts[0].id + '/?include=tags'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(draftPost)
+                        .expect('Content-Type', /json/)
                         .expect(200)
                         .end(function (err, res) {
                             if (err) {
@@ -520,15 +502,15 @@ describe('Post API', function () {
                 newPost = {posts: [{status: 'published', title: newTitle, markdown: 'my post', tags: [newTag]}]};
 
             request.post(testUtils.API.getApiQuery('posts/?include=tags'))
-                .set('X-CSRF-Token', csrfToken)
+                .set('Authorization', 'Bearer ' + accesstoken)
                 .send(newPost)
+                .expect('Content-Type', /json/)
                 .expect(201)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
                     }
 
-                    res.should.be.json;
                     var draftPost = res.body;
                     res.headers['location'].should.equal('/ghost/api/v0.1/posts/' + draftPost.posts[0].id + '/?status=published');
                     draftPost.posts.should.exist;
@@ -540,15 +522,16 @@ describe('Post API', function () {
                     draftPost.posts[0].status = draftState;
 
                     request.put(testUtils.API.getApiQuery('posts/' + draftPost.posts[0].id + '/?include=tags'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(draftPost)
+                        .expect('Content-Type', /json/)
                         .expect(200)
                         .end(function (err, res) {
                             if (err) {
                                 return done(err);
                             }
 
-                            
+
                             var unpublishedPost = res.body;
                             // Unpublishing a post should send x-cache-invalidate headers
                             _.has(res.headers, 'x-cache-invalidate').should.equal(true);
@@ -559,6 +542,8 @@ describe('Post API', function () {
 
         it('can change a post to a static page', function (done) {
             request.get(testUtils.API.getApiQuery('posts/1/?include=tags'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -571,8 +556,9 @@ describe('Post API', function () {
                     jsonResponse.posts[0].page = changedValue;
 
                     request.put(testUtils.API.getApiQuery('posts/1/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(jsonResponse)
+                        .expect('Content-Type', /json/)
                         .expect(200)
                         .end(function (err, res) {
                             if (err) {
@@ -581,7 +567,6 @@ describe('Post API', function () {
 
                             var putBody = res.body;
                             _.has(res.headers, 'x-cache-invalidate').should.equal(true);
-                            res.should.be.json;
                             putBody.should.exist;
                             putBody.posts[0].page.should.eql(changedValue);
 
@@ -593,6 +578,8 @@ describe('Post API', function () {
 
         it('can change a static page to a post', function (done) {
             request.get(testUtils.API.getApiQuery('posts/7/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -605,8 +592,9 @@ describe('Post API', function () {
                     jsonResponse.posts[0].page = changedValue;
 
                     request.put(testUtils.API.getApiQuery('posts/7/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(jsonResponse)
+                        .expect('Content-Type', /json/)
                         .expect(200)
                         .end(function (err, res) {
                             if (err) {
@@ -616,7 +604,6 @@ describe('Post API', function () {
                             var putBody = res.body;
 
                             _.has(res.headers, 'x-cache-invalidate').should.equal(true);
-                            res.should.be.json;
                             putBody.should.exist;
                             putBody.posts[0].page.should.eql(changedValue);
                             testUtils.API.checkResponse(putBody.posts[0], 'post');
@@ -627,6 +614,8 @@ describe('Post API', function () {
 
         it('can\'t edit post with invalid page field', function (done) {
             request.get(testUtils.API.getApiQuery('posts/7/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -639,8 +628,9 @@ describe('Post API', function () {
                     jsonResponse.posts[0].page = changedValue;
 
                     request.put(testUtils.API.getApiQuery('posts/7/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(jsonResponse)
+                        .expect('Content-Type', /json/)
                         .expect(422)
                         .end(function (err, res) {
                             if (err) {
@@ -649,7 +639,6 @@ describe('Post API', function () {
 
                             var putBody = res.body;
                             _.has(res.headers, 'x-cache-invalidate').should.equal(false);
-                            res.should.be.json;
                             jsonResponse = res.body;
                             jsonResponse.errors.should.exist;
                             testUtils.API.checkResponseValue(jsonResponse.errors[0], ['message', 'type']);
@@ -658,8 +647,10 @@ describe('Post API', function () {
                 });
         });
 
-        it('can\'t edit a post with invalid CSRF token', function (done) {
+        it('can\'t edit a post with invalid accesstoken', function (done) {
             request.get(testUtils.API.getApiQuery('posts/1/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -667,9 +658,10 @@ describe('Post API', function () {
 
                     var jsonResponse = res.body;
                     request.put(testUtils.API.getApiQuery('posts/1/'))
-                        .set('X-CSRF-Token', 'invalid-token')
+                        .set('Authorization', 'Bearer ' + 'invalidtoken')
                         .send(jsonResponse)
-                        .expect(403)
+                        .expect('Content-Type', /json/)
+                        .expect(401)
                         .end(function (err, res) {
                             if (err) {
                                 return done(err);
@@ -682,6 +674,8 @@ describe('Post API', function () {
 
         it('published_at = null', function (done) {
             request.get(testUtils.API.getApiQuery('posts/1/?include=tags'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -694,8 +688,9 @@ describe('Post API', function () {
                     jsonResponse.published_at = null;
 
                     request.put(testUtils.API.getApiQuery('posts/1/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(jsonResponse)
+                        .expect('Content-Type', /json/)
                         .expect(200)
                         .end(function (err, res) {
                             if (err) {
@@ -704,7 +699,6 @@ describe('Post API', function () {
 
                             var putBody = res.body;
                             _.has(res.headers, 'x-cache-invalidate').should.equal(true);
-                            res.should.be.json;
                             putBody.should.exist;
                             putBody.posts.should.exist;
                             putBody.posts[0].title.should.eql(changedValue);
@@ -720,6 +714,8 @@ describe('Post API', function () {
 
         it('can\'t edit non existent post', function (done) {
             request.get(testUtils.API.getApiQuery('posts/1/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -731,8 +727,9 @@ describe('Post API', function () {
                     jsonResponse.posts[0].testvalue = changedValue;
                     jsonResponse.posts[0].id = 99;
                     request.put(testUtils.API.getApiQuery('posts/99/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(jsonResponse)
+                        .expect('Content-Type', /json/)
                         .expect(404)
                         .end(function (err, res) {
                             if (err) {
@@ -740,7 +737,6 @@ describe('Post API', function () {
                             }
 
                             _.has(res.headers, 'x-cache-invalidate').should.equal(false);
-                            res.should.be.json;
                             jsonResponse = res.body;
                             jsonResponse.errors.should.exist;
                             testUtils.API.checkResponseValue(jsonResponse.errors[0], ['message', 'type']);
@@ -756,14 +752,14 @@ describe('Post API', function () {
         it('can delete a post', function (done) {
             var deletePostId = 1;
             request.del(testUtils.API.getApiQuery('posts/' + deletePostId + '/'))
-                .set('X-CSRF-Token', csrfToken)
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(200)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
                     }
 
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.posts.should.exist;
@@ -776,7 +772,8 @@ describe('Post API', function () {
 
         it('can\'t delete a non existent post', function (done) {
             request.del(testUtils.API.getApiQuery('posts/99/'))
-                .set('X-CSRF-Token', csrfToken)
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(404)
                 .end(function (err, res) {
                     if (err) {
@@ -784,7 +781,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
                     jsonResponse.errors.should.exist;
@@ -799,8 +795,9 @@ describe('Post API', function () {
                 newPost = {posts: [{status: publishedState, title: newTitle, markdown: 'my post'}]};
 
             request.post(testUtils.API.getApiQuery('posts/'))
-                .set('X-CSRF-Token', csrfToken)
+                .set('Authorization', 'Bearer ' + accesstoken)
                 .send(newPost)
+                .expect('Content-Type', /json/)
                 .expect(201)
                 .end(function (err ,res) {
                     if (err) {
@@ -809,21 +806,20 @@ describe('Post API', function () {
 
                     var draftPost = res.body;
 
-                    res.should.be.json;
                     draftPost.should.exist;
                     draftPost.posts[0].title.should.eql(newTitle);
                     draftPost.posts[0].status = publishedState;
                     testUtils.API.checkResponse(draftPost.posts[0], 'post');
 
                     request.del(testUtils.API.getApiQuery('posts/' + draftPost.posts[0].id + '/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
+                        .expect('Content-Type', /json/)
                         .expect(200)
                         .end(function (err, res) {
                             if (err) {
                                 return done(err);
                             }
 
-                            res.should.be.json;
                             var jsonResponse = res.body
                             jsonResponse.should.exist;
                             jsonResponse.posts.should.exist;
@@ -838,6 +834,8 @@ describe('Post API', function () {
     describe('Dated Permalinks', function () {
         before(function (done) {
             request.get(testUtils.API.getApiQuery('settings/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -847,8 +845,9 @@ describe('Post API', function () {
                     jsonResponse.permalinks = '/:year/:month/:day/:slug/';
 
                     request.put(testUtils.API.getApiQuery('settings/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
                         .send(jsonResponse)
+                        .expect('Content-Type', /json/)
                         .end(function (err, res) {
                             if (err) {
                                 return done(err);
@@ -860,6 +859,8 @@ describe('Post API', function () {
 
         after(function (done) {
             request.get(testUtils.API.getApiQuery('settings/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -869,7 +870,8 @@ describe('Post API', function () {
                     jsonResponse.permalinks = '/:slug/';
 
                     request.put(testUtils.API.getApiQuery('settings/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
+                        .expect('Content-Type', /json/)
                         .send(jsonResponse)
                         .end(function (err, res) {
                             if (err) {
@@ -884,6 +886,8 @@ describe('Post API', function () {
         it('Can read a post', function (done) {
             // nothing should have changed here
             request.get(testUtils.API.getApiQuery('posts/2/'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .expect(200)
                 .end(function (err, res) {
                     if (err) {
@@ -891,7 +895,6 @@ describe('Post API', function () {
                     }
 
                     should.not.exist(res.headers['x-cache-invalidate']);
-                    res.should.be.json;
 
                     var jsonResponse = res.body;
                     jsonResponse.should.exist;
@@ -905,6 +908,8 @@ describe('Post API', function () {
 
         it('Can edit a post', function (done) {
             request.get(testUtils.API.getApiQuery('posts/2/?include=tags'))
+                .set('Authorization', 'Bearer ' + accesstoken)
+                .expect('Content-Type', /json/)
                 .end(function (err, res) {
                     if (err) {
                         return done(err);
@@ -917,7 +922,8 @@ describe('Post API', function () {
                     jsonResponse.posts[0].title = changedValue;
 
                     request.put(testUtils.API.getApiQuery('posts/2/'))
-                        .set('X-CSRF-Token', csrfToken)
+                        .set('Authorization', 'Bearer ' + accesstoken)
+                        .expect('Content-Type', /json/)
                         .send(jsonResponse)
                         .expect(200)
                         .end(function (err, res) {
@@ -932,7 +938,6 @@ describe('Post API', function () {
                                 postLink = '/' + yyyy + '/' + mm + '/' + dd + '/' + putBody.posts[0].slug + '/';
 
                             _.has(res.headers, 'x-cache-invalidate').should.equal(true);
-                            res.should.be.json;
                             putBody.should.exist;
                             putBody.posts[0].title.should.eql(changedValue);
 

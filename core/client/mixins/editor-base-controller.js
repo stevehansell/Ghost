@@ -15,6 +15,18 @@ Ember.get(PostModel, 'attributes').forEach(function (name) {
 watchedProps.push('tags.[]');
 
 var EditorControllerMixin = Ember.Mixin.create(MarkerManager, {
+
+    needs: ['post-tags-input'],
+
+    init: function () {
+        var self = this;
+
+        this._super();
+
+        window.onbeforeunload = function () {
+            return self.get('isDirty') ? self.unloadDirtyMessage() : null;
+        };
+    },
     /**
      * By default, a post will not change its publish state.
      * Only with a user-set value (via setSaveType action)
@@ -51,6 +63,22 @@ var EditorControllerMixin = Ember.Mixin.create(MarkerManager, {
         return hashCurrent === hashPrevious;
     },
 
+    // a hook created in editor-route-base's setupController
+    modelSaved: function () {
+        var model = this.get('model');
+
+        // safer to updateTags on save in one place
+        // rather than in all other places save is called
+        model.updateTags();
+
+        // set previousTagNames to current tagNames for isDirty check
+        this.set('previousTagNames', this.get('tagNames'));
+
+        // `updateTags` triggers `isDirty => true`.
+        // for a saved model it would otherwise be false.
+        this.set('isDirty', false);
+    },
+
     // an ugly hack, but necessary to watch all the model's properties
     // and more, without having to be explicit and do it manually
     isDirty: Ember.computed.apply(Ember, watchedProps.concat(function (key, value) {
@@ -64,7 +92,6 @@ var EditorControllerMixin = Ember.Mixin.create(MarkerManager, {
             changedAttributes;
 
         if (!this.tagNamesEqual()) {
-            this.set('previousTagNames', this.get('tagNames'));
             return true;
         }
 
@@ -106,25 +133,78 @@ var EditorControllerMixin = Ember.Mixin.create(MarkerManager, {
             '==============================';
     },
 
+    //TODO: This has to be moved to the I18n localization file.
+    //This structure is supposed to be close to the i18n-localization which will be used soon.
+    messageMap: {
+        errors: {
+            post: {
+                published: {
+                    'published': 'Your post could not be updated.',
+                    'draft': 'Your post could not be saved as a draft.'
+                },
+                draft: {
+                    'published': 'Your post could not be published.',
+                    'draft': 'Your post could not be saved as a draft.'
+                }
+
+            }
+        },
+
+        success: {
+            post: {
+                published: {
+                    'published': 'Your post has been updated.',
+                    'draft': 'Your post has been saved as a draft.'
+                },
+                draft: {
+                    'published': 'Your post has been published.',
+                    'draft': 'Your post has been saved as a draft.'
+                }
+            }
+        }
+    },
+
+    showSaveNotification: function (prevStatus, status, delay) {
+        var message = this.messageMap.success.post[prevStatus][status];
+        this.notifications.closePassive();
+
+        this.notifications.showSuccess(message, delay);
+    },
+
+    showErrorNotification: function (prevStatus, status, errors, delay) {
+        var message = this.messageMap.errors.post[prevStatus][status];
+        this.notifications.closePassive();
+
+        message += '<br />' + errors[0].message;
+
+        this.notifications.showError(message, delay);
+    },
+
     actions: {
         save: function () {
             var status = this.get('willPublish') ? 'published' : 'draft',
+                prevStatus = this.get('status'),
+                isNew = this.get('isNew'),
                 self = this;
 
+            self.notifications.closePassive();
+
+            // ensure an incomplete tag is finalised before save
+            this.get('controllers.post-tags-input').send('addNewTag');
+
+            // Set the properties that are indirected
             // set markdown equal to what's in the editor, minus the image markers.
             this.set('markdown', this.getMarkdown().withoutMarkers);
-
+            this.set('title', this.get('titleScratch'));
             this.set('status', status);
-            return this.get('model').save().then(function (model) {
-                model.updateTags();
-                // `updateTags` triggers `isDirty => true`.
-                // for a saved model it would otherwise be false.
-                self.set('isDirty', false);
 
-                self.notifications.showSuccess('Post status saved as <strong>' +
-                    model.get('status') + '</strong>.');
+            return this.get('model').save().then(function (model) {
+                self.showSaveNotification(prevStatus, model.get('status'), isNew ? true : false);
                 return model;
-            }, this.notifications.showErrors);
+            }).catch(function (errors) {
+                self.showErrorNotification(prevStatus, self.get('status'), errors);
+                return Ember.RSVP.reject(errors);
+            });
         },
 
         setSaveType: function (newType) {

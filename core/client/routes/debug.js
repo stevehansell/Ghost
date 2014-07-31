@@ -1,11 +1,24 @@
 import styleBody from 'ghost/mixins/style-body';
-import AuthenticatedRoute from 'ghost/routes/authenticated';
-import SettingsModel from 'ghost/models/settings';
+import loadingIndicator from 'ghost/mixins/loading-indicator';
 
-export default AuthenticatedRoute.extend(styleBody, {
+var DebugRoute = Ember.Route.extend(SimpleAuth.AuthenticatedRouteMixin, styleBody, loadingIndicator, {
     classNames: ['settings'],
 
+    beforeModel: function () {
+        var self = this;
+        this.store.find('user', 'me').then(function (user) {
+            if (user.get('isAuthor') || user.get('isEditor')) {
+                self.transitionTo('posts');
+            }
+        });
+    },
+
     model: function () {
-        return SettingsModel.create();
+        return this.store.find('setting', { type: 'blog,theme' }).then(function (records) {
+            return records.get('firstObject');
+        });
     }
+
 });
+
+export default DebugRoute;

@@ -9,151 +9,35 @@ var assert          = require('assert'),
 
 describe('Middleware', function () {
 
-    describe('auth', function () {
-        var req, res;
+    // TODO: needs new test for ember admin
+    // describe('redirectToDashboard', function () {
+    //     var req, res;
 
-        beforeEach(function (done) {
-            req = {
-                session: {}
-            };
+    //     beforeEach(function () {
+    //         req = {
+    //             session: {}
+    //         };
 
-            res = {
-                redirect: sinon.spy()
-            };
+    //         res = {
+    //             redirect: sinon.spy()
+    //         };
+    //     });
 
-            api.notifications.destroyAll().then(function () {
-                done();
-            }).catch(done);
-        });
+    //     it('should redirect to dashboard', function () {
+    //         req.session.user = {};
 
-        it('should redirect to signin path', function (done) {
+    //         middleware.redirectToDashboard(req, res, null);
+    //         assert(res.redirect.calledWithMatch('/ghost/'));
+    //     });
 
-            req.path = '';
-
-            middleware.auth(req, res, null).then(function () {
-                assert(res.redirect.calledWithMatch('/ghost/signin/'));
-                done();
-            }).catch(done);
-
-        });
-
-        it('should redirect to signin path with redirect paramater stripped of /ghost/', function(done) {
-            var path = 'test/path/party';
-
-            req.path = '/ghost/' + path;
-            middleware.auth(req, res, null).then(function () {
-                assert(res.redirect.calledWithMatch('/ghost/signin/?r=' + encodeURIComponent(path)));
-                done();
-            }).catch(done);
-        });
-
-        it('should call next if session user exists', function (done) {
-            req.session.user = {};
-
-            middleware.auth(req, res, function (a) {
-                should.not.exist(a);
-                assert(res.redirect.calledOnce.should.be.false);
-                done();
-            });
-        });
-    });
-
-    describe('authAPI', function () {
-        var req, res;
-
-        beforeEach(function () {
-            req = {
-                session: {}
-            };
-
-            res = {
-                redirect: sinon.spy(),
-                json: sinon.spy()
-            };
-        });
-
-        it('should return a json 401 error response', function () {
-            middleware.authAPI(req, res, null);
-            assert(res.json.calledWith(401, { error: 'Please sign in' }));
-        });
-
-        it('should call next if a user exists in session', function (done) {
-            req.session.user = {};
-
-            middleware.authAPI(req, res, function (a) {
-                should.not.exist(a);
-                assert(res.redirect.calledOnce.should.be.false);
-                done();
-            });
-        });
-    });
-
-    describe('redirectToDashboard', function () {
-        var req, res;
-
-        beforeEach(function () {
-            req = {
-                session: {}
-            };
-
-            res = {
-                redirect: sinon.spy()
-            };
-        });
-
-        it('should redirect to dashboard', function () {
-            req.session.user = {};
-
-            middleware.redirectToDashboard(req, res, null);
-            assert(res.redirect.calledWithMatch('/ghost/'));
-        });
-
-        it('should call next if no user in session', function (done) {
-            middleware.redirectToDashboard(req, res, function (a) {
-                should.not.exist(a);
-                assert(res.redirect.calledOnce.should.be.false);
-                done();
-            });
-        });
-    });
-
-    describe('cleanNotifications', function () {
-
-        beforeEach(function (done) {
-            api.notifications.add({ notifications: [{
-                id: 0,
-                status: 'passive',
-                message: 'passive-one'
-            }] }).then(function () {
-                return api.notifications.add({ notifications: [{
-                    id: 1,
-                    status: 'passive',
-                    message: 'passive-two'
-                }] });
-            }).then(function () {
-                return api.notifications.add({ notifications: [{
-                    id: 2,
-                    status: 'aggressive',
-                    message: 'aggressive'
-                }] });
-            }).then(function () {
-                done();
-            }).catch(done);
-        });
-
-        it('should clean all passive messages', function (done) {
-            middleware.cleanNotifications(null, null, function () {
-                api.notifications.browse().then(function (notifications) {
-                    should(notifications.notifications.length).eql(1);
-                    var passiveMsgs = _.filter(notifications.notifications, function (notification) {
-                        return notification.status === 'passive';
-                    });
-                    assert.equal(passiveMsgs.length, 0);
-                    done();
-                }).catch(done);
-            });
-        });
-    });
+    //     it('should call next if no user in session', function (done) {
+    //         middleware.redirectToDashboard(req, res, function (a) {
+    //             should.not.exist(a);
+    //             assert(res.redirect.calledOnce.should.be.false);
+    //             done();
+    //         });
+    //     });
+    // });
 
     describe('cacheControl', function () {
         var res;

@@ -1,22 +1,25 @@
-var migrations = require('../data/migration'),
-    _          = require('lodash'),
-    when   = require('when');
+var _      = require('lodash'),
+    when   = require('when'),
+    models;
 
-module.exports = {
+models = {
     Post: require('./post').Post,
     User: require('./user').User,
     Role: require('./role').Role,
     Permission: require('./permission').Permission,
+    Permissions: require('./permission').Permissions,
     Settings: require('./settings').Settings,
     Tag: require('./tag').Tag,
     Base: require('./base'),
-    Session: require('./session').Session,
     App: require('./app').App,
     AppField: require('./appField').AppField,
     AppSetting: require('./appSetting').AppSetting,
+    Client: require('./client').Client,
+    Accesstoken: require('./accesstoken').Accesstoken,
+    Refreshtoken: require('./refreshtoken').Refreshtoken,
 
     init: function () {
-        return migrations.init();
+        return true;
     },
     // ### deleteAllContent
     // Delete all content from the database (posts, tags, tags_posts)
@@ -36,3 +39,5 @@ module.exports = {
         });
     }
 };
+
+module.exports = models;

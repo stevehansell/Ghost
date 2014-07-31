@@ -1,34 +1,20 @@
  /*globals describe, before, beforeEach, afterEach, it */
-var testUtils = require('../../utils'),
-    should    = require('should'),
+ /*jshint expr:true*/
+var testUtils     = require('../../utils'),
+    should        = require('should'),
 
     // Stuff we are testing
-    DataGenerator = require('../../utils/fixtures/data-generator'),
     PostAPI       = require('../../../server/api/posts');
 
 describe('Post API', function () {
 
-    before(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
+    // Keep the DB clean
+    before(testUtils.teardown);
+    afterEach(testUtils.teardown);
+    beforeEach(testUtils.setup('users:roles', 'perms:post', 'posts', 'perms:init'));
 
-    beforeEach(function (done) {
-        testUtils.initData()
-            .then(function () {
-                return testUtils.insertDefaultFixtures();
-            })
-            .then(function () {
-                done();
-            }).catch(done);
-    });
 
-    afterEach(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
+    should.exist(PostAPI);
 
     it('can browse', function (done) {
         PostAPI.browse().then(function (results) {
@@ -57,6 +43,8 @@ describe('Post API', function () {
             testUtils.API.checkResponse(found.posts[0], 'post');
 
             post = found.posts[0];
+
+            post.created_at.should.be.an.instanceof(Date);
 
             should.exist(post.tags);
             post.tags.length.should.be.above(0);

@@ -3,16 +3,18 @@
 // middleware_spec.js
 
 var _           = require('lodash'),
-    csrf        = require('csurf'),
     express     = require('express'),
     busboy      = require('./ghost-busboy'),
     config      = require('../config'),
     path        = require('path'),
     api         = require('../api'),
+    passport    = require('passport'),
+    errors      = require('../errors'),
+    utils       = require('../utils'),
 
     expressServer,
-    ONE_HOUR_MS = 60 * 60 * 1000,
-    ONE_YEAR_MS = 365 * 24 * ONE_HOUR_MS;
+    oauthServer,
+    loginSecurity = [];
 
 function isBlackListedFileType(file) {
     var blackListedFileTypes = ['.hbs', '.md', '.json'],
@@ -24,6 +26,10 @@ function cacheServer(server) {
     expressServer = server;
 }
 
+function cacheOauthServer(server) {
+    oauthServer = server;
+}
+
 var middleware = {
 
     // ### Authenticate Middleware
@@ -31,103 +37,45 @@ var middleware = {
     // exceptions for signin, signout, signup, forgotten, reset only
     // api and frontend use different authentication mechanisms atm
     authenticate: function (req, res, next) {
-        var noAuthNeeded = [
-                '/ghost/signin/', '/ghost/signout/', '/ghost/signup/',
-                '/ghost/forgotten/', '/ghost/reset/', '/ghost/ember/'
-            ],
-            path,
+        var path,
             subPath;
 
         // SubPath is the url path starting after any default subdirectories
         // it is stripped of anything after the two levels `/ghost/.*?/` as the reset link has an argument
-        path = req.path.substring(config().paths.subdir.length);
+        path = req.path.substring(config.paths.subdir.length);
         /*jslint regexp:true, unparam:true*/
         subPath = path.replace(/^(\/.*?\/.*?\/)(.*)?/, function (match, a) {
             return a;
         });
 
         if (res.isAdmin) {
-            if (subPath.indexOf('/ghost/api/') === 0 && path.indexOf('/ghost/api/v0.1/authentication/passwordreset/') !== 0) {
-                return middleware.authAPI(req, res, next);
-            }
+            if (subPath.indexOf('/ghost/api/') === 0
+                && path.indexOf('/ghost/api/v0.1/authentication/') !== 0) {
 
-            if (noAuthNeeded.indexOf(subPath) < 0 && subPath.indexOf('/ghost/api/') !== 0) {
-                return middleware.auth(req, res, next);
-            }
-        }
-        next();
-    },
-
-    // ### Auth Middleware
-    // Authenticate a request by redirecting to login if not logged in.
-    // We strip /ghost/ out of the redirect parameter for neatness
-    auth: function (req, res, next) {
-        if (!req.session.user) {
-            var subPath = req.path.substring(config().paths.subdir.length),
-                reqPath = subPath.replace(/^\/ghost\/?/gi, ''),
-                redirect = '',
-                msg;
-
-            return api.notifications.browse().then(function (notifications) {
-                if (reqPath !== '') {
-                    msg = {
-                        type: 'error',
-                        message: 'Please Sign In',
-                        status: 'passive'
-                    };
-                    // let's only add the notification once
-                    if (!_.contains(_.pluck(notifications, 'id'), 'failedauth')) {
-                        api.notifications.add({ notifications: [msg] });
+                return passport.authenticate('bearer', { session: false, failWithError: true },
+                    function (err, user, info) {
+                        if (err) {
+                            return next(err); // will generate a 500 error
+                        }
+                        // Generate a JSON response reflecting authentication status
+                        if (! user) {
+                            var msg = {
+                                type: 'error',
+                                message: 'Please Sign In',
+                                status: 'passive'
+                            };
+                            res.status(401);
+                            return res.send(msg);
+                        }
+                        // TODO: figure out, why user & authInfo is lost
+                        req.authInfo = info;
+                        req.user = user;
+                        return next(null, user, info);
                     }
-                    redirect = '?r=' + encodeURIComponent(reqPath);
-                }
-
-                if (subPath.indexOf('/ember') > -1) {
-                    return res.redirect(config().paths.subdir + '/ghost/ember/signin');
-                }
-
-                return res.redirect(config().paths.subdir + '/ghost/signin/' + redirect);
-            });
+                )(req, res, next);
+            }
         }
         next();
-    },
-
-    // ## AuthApi Middleware
-    // Authenticate a request to the API by responding with a 401 and json error details
-    authAPI: function (req, res, next) {
-        if (!req.session.user) {
-            res.json(401, { error: 'Please sign in' });
-            return;
-        }
-
-        next();
-    },
-
-    // Check if we're logged in, and if so, redirect people back to dashboard
-    // Login and signup forms in particular
-    redirectToDashboard: function (req, res, next) {
-        if (req.session && req.session.user) {
-            return res.redirect(config().paths.subdir + '/ghost/');
-        }
-
-        next();
-    },
-
-    // While we're here, let's clean up on aisle 5
-    // That being ghost.notifications, and let's remove the passives from there
-    // plus the local messages, as they have already been added at this point
-    // otherwise they'd appear one too many times
-    // ToDo: Remove once ember handles passive notifications.
-    cleanNotifications: function (req, res, next) {
-        /*jslint unparam:true*/
-        api.notifications.browse().then(function (notifications) {
-            _.each(notifications.notifications, function (notification) {
-                if (notification.status === 'passive') {
-                    api.notifications.destroy(notification);
-                }
-            });
-            next();
-        });
     },
 
     // ### CacheControl Middleware
@@ -181,17 +129,54 @@ var middleware = {
         api.settings.read({context: {internal: true}, key: 'activeTheme'}).then(function (response) {
             var activeTheme = response.settings[0];
 
-            express['static'](path.join(config().paths.themePath, activeTheme.value), {maxAge: ONE_YEAR_MS})(req, res, next);
+            express['static'](path.join(config.paths.themePath, activeTheme.value), {maxAge: utils.ONE_YEAR_MS})(req, res, next);
         });
     },
 
-    conditionalCSRF: function (req, res, next) {
-        // CSRF is needed for admin only
-        if (res.isAdmin) {
-            csrf()(req, res, next);
-            return;
+    // ### Spam prevention Middleware
+    // limit signin requests to one every two seconds
+    spamPrevention: function (req, res, next) {
+        var currentTime = process.hrtime()[0],
+            remoteAddress = req.connection.remoteAddress,
+            denied = '';
+
+        // filter for IPs that tried to login in the last 2 sec
+        loginSecurity = _.filter(loginSecurity, function (logTime) {
+            return (logTime.time + 2 > currentTime);
+        });
+
+        // check if IP tried to login in the last 2 sec
+        denied = _.find(loginSecurity, function (logTime) {
+            return (logTime.ip === remoteAddress);
+        });
+
+        if (!denied || expressServer.get('disableLoginLimiter') === true) {
+            loginSecurity.push({ip: remoteAddress, time: currentTime});
+            next();
+        } else {
+            return next(new errors.UnauthorizedError('Slow down, there are way too many login attempts!'));
+        }
+    },
+
+    // work around to handle missing client_secret
+    // oauth2orize needs it, but untrusted clients don't have it
+    addClientSecret: function (req, res, next) {
+        if (!req.body.client_secret) {
+            req.body.client_secret = 'not_available';
         }
         next();
+    },
+
+    // ### Authenticate Client Middleware
+    // authenticate client that is asking for an access token
+    authenticateClient: function (req, res, next) {
+        return passport.authenticate(['oauth2-client-password'], { session: false })(req, res, next);
+    },
+
+    // ### Generate access token Middleware
+    // register the oauth2orize middleware for password and refresh token grants
+    generateAccessToken: function (req, res, next) {
+        return oauthServer.token()(req, res, next);
     },
 
     busboy: busboy
@@ -199,3 +184,4 @@ var middleware = {
 
 module.exports = middleware;
 module.exports.cacheServer = cacheServer;
+module.exports.cacheOauthServer = cacheOauthServer;

@@ -4,12 +4,11 @@ var _               = require('lodash'),
     fs              = require('fs'),
     nodefn          = require('when/node'),
     errors          = require('../../errors'),
-    client          = require('../../models/base').client,
-    knex            = require('../../models/base').knex,
     sequence        = require('when/sequence'),
 
+    commands        = require('./commands'),
     versioning      = require('../versioning'),
-    Settings        = require('../../models/settings').Settings,
+    models          = require('../../models'),
     fixtures        = require('../fixtures'),
     schema          = require('../schema').tables,
     dataExport      = require('../export'),
@@ -18,65 +17,45 @@ var _               = require('lodash'),
 
     schemaTables    = _.keys(schema),
 
+    // private
+    logInfo,
+    populateDefaultSettings,
+    backupDatabase,
+
+    // public
     init,
     reset,
     migrateUp,
     migrateUpFreshDb;
 
-function getDeleteCommands(oldTables, newTables) {
-    var deleteTables = _.difference(oldTables, newTables);
-    if (!_.isEmpty(deleteTables)) {
-        return _.map(deleteTables, function (table) {
-            return function () {
-                return utils.deleteTable(table);
-            };
-        });
-    }
-}
+logInfo = function logInfo(message) {
+    errors.logInfo('Migrations', message);
+};
 
-function getAddCommands(oldTables, newTables) {
-    var addTables = _.difference(newTables, oldTables);
-    if (!_.isEmpty(addTables)) {
-        return _.map(addTables, function (table) {
-            return function () {
-                return utils.createTable(table);
-            };
-        });
-    }
-}
-
-function addColumnCommands(table, columns) {
-    var columnKeys = _.keys(schema[table]),
-        addColumns = _.difference(columnKeys, columns);
-    
-    return _.map(addColumns, function (column) {
-        return function () {
-            utils.addColumn(table, column);
-        };
+populateDefaultSettings = function populateDefaultSettings() {
+    // Initialise the default settings
+    logInfo('Populating default settings');
+    return models.Settings.populateDefault('databaseVersion').then(function () {
+        logInfo('Complete');
     });
-}
+};
 
-function modifyUniqueCommands(table, indexes) {
-    var columnKeys = _.keys(schema[table]);
-    return _.map(columnKeys, function (column) {
-        if (schema[table][column].unique && schema[table][column].unique === true) {
-            if (!_.contains(indexes, table + '_' + column + '_unique')) {
-                return function () {
-                    return utils.addUnique(table, column);
-                };
-            }
-        } else if (!schema[table][column].unique) {
-            if (_.contains(indexes, table + '_' + column + '_unique')) {
-                return function () {
-                    return utils.dropUnique(table, column);
-                };
-            }
-        }
+backupDatabase = function backupDatabase() {
+    logInfo('Creating database backup');
+    return dataExport().then(function (exportedData) {
+        // Save the exported data to the file system for download
+        var fileName = path.resolve(config.paths.contentPath + '/data/' + dataExport.fileName());
+
+        return nodefn.call(fs.writeFile, fileName, JSON.stringify(exportedData)).then(function () {
+            logInfo('Database backup written to: ' + fileName);
+        });
     });
-}
+};
 
 // Check for whether data is needed to be bootstrapped or not
-init = function () {
+init = function (tablesOnly) {
+    tablesOnly = tablesOnly || false;
+
     var self = this;
     // There are 4 possibilities:
     // 1. The database exists and is up-to-date
@@ -85,18 +64,23 @@ init = function () {
     // 4. The database has not yet been created
     return versioning.getDatabaseVersion().then(function (databaseVersion) {
         var defaultVersion = versioning.getDefaultDatabaseVersion();
-        if (databaseVersion === defaultVersion) {
-            // 1. The database exists and is up-to-date
-            return when.resolve();
-        }
-        if (databaseVersion < defaultVersion) {
+
+        if (databaseVersion < defaultVersion || process.env.FORCE_MIGRATION) {
             // 2. The database exists but is out of date
             // Migrate to latest version
-            return self.migrateUp().then(function () {
+            logInfo('Database upgrade required from version ' + databaseVersion + ' to ' +  defaultVersion);
+            return self.migrateUp(databaseVersion, defaultVersion).then(function () {
                 // Finally update the databases current version
                 return versioning.setDatabaseVersion();
             });
         }
+
+        if (databaseVersion === defaultVersion) {
+            // 1. The database exists and is up-to-date
+            logInfo('Up to date at version ' + databaseVersion);
+            return when.resolve();
+        }
+
         if (databaseVersion > defaultVersion) {
             // 3. The database exists but the currentVersion setting does not or cannot be understood
             // In this case we don't understand the version because it is too high
@@ -109,7 +93,8 @@ init = function () {
         if (err.message || err === 'Settings table does not exist') {
             // 4. The database has not yet been created
             // Bring everything up from initial version.
-            return self.migrateUpFreshDb();
+            logInfo('Database initialisation required for version ' + versioning.getDefaultDatabaseVersion());
+            return self.migrateUpFreshDb(tablesOnly);
         }
         // 3. The database exists but the currentVersion setting does not or cannot be understood
         // In this case the setting was missing or there was some other problem
@@ -120,8 +105,7 @@ init = function () {
 // ### Reset
 // Delete all tables from the database in reverse order
 reset = function () {
-    var tables = [];
-    tables = _.map(schemaTables, function (table) {
+    var tables = _.map(schemaTables, function (table) {
         return function () {
             return utils.deleteTable(table);
         };
@@ -131,73 +115,48 @@ reset = function () {
 };
 
 // Only do this if we have no database at all
-migrateUpFreshDb = function () {
-    var tables = [];
-    tables = _.map(schemaTables, function (table) {
+migrateUpFreshDb = function (tablesOnly) {
+    var tableSequence,
+        tables = _.map(schemaTables, function (table) {
         return function () {
+            logInfo('Creating table: ' + table);
             return utils.createTable(table);
         };
     });
+    logInfo('Creating tables...');
+    tableSequence = sequence(tables);
 
-    return sequence(tables).then(function () {
+    if (tablesOnly) {
+        return tableSequence;
+    }
+    return tableSequence.then(function () {
         // Load the fixtures
-        return fixtures.populateFixtures().then(function () {
-            // Initialise the default settings
-            return Settings.populateDefaults();
-        });
+        return fixtures.populate();
+    }).then(function () {
+        return populateDefaultSettings();
     });
 };
 
-// This function changes the type of posts.html and posts.markdown columns to mediumtext. Due to
-// a wrong datatype in schema.js some installations using mysql could have been created using the
-// data type text instead of mediumtext.
-// For details see: https://github.com/TryGhost/Ghost/issues/1947 
-function checkMySQLPostTable() {
-    return knex.raw("SHOW FIELDS FROM posts where Field ='html' OR Field = 'markdown'").then(function (response) {
-        return _.flatten(_.map(response[0], function (entry) {
-            if (entry.Type.toLowerCase() !== 'mediumtext') {
-                return knex.raw("ALTER TABLE posts MODIFY " + entry.Field + " MEDIUMTEXT").then(function () {
-                    return when.resolve();
-                });
-            }
-        }));
-    });
-}
-
-function backupDatabase() {
-    return dataExport().then(function (exportedData) {
-        // Save the exported data to the file system for download
-        var fileName = path.resolve(config().paths.contentPath + '/data/exported-' + (new Date().getTime()) + '.json');
-
-        return nodefn.call(fs.writeFile, fileName, JSON.stringify(exportedData));
-    });
-}
-
 // Migrate from a specific version to the latest
-migrateUp = function () {
-    var deleteCommands,
-        addCommands,
-        oldTables,
-        addColumns = [],
+migrateUp = function (fromVersion, toVersion) {
+    var oldTables,
         modifyUniCommands = [],
-        commands = [];
+        migrateOps = [];
 
     return backupDatabase().then(function () {
-        return utils.getTables().then(function (tables) {
-            oldTables = tables;
-        });
-    }).then(function () {
-        // if tables exist and client is mysqls check if posts table is okay
-        if (!_.isEmpty(oldTables) && client === 'mysql') {
-            return checkMySQLPostTable();
+        return utils.getTables();
+    }).then(function (tables) {
+        oldTables = tables;
+        if (!_.isEmpty(oldTables)) {
+            return utils.checkTables();
         }
     }).then(function () {
-        deleteCommands = getDeleteCommands(oldTables, schemaTables);
-        addCommands = getAddCommands(oldTables, schemaTables);
+        migrateOps = migrateOps.concat(commands.getDeleteCommands(oldTables, schemaTables));
+        migrateOps = migrateOps.concat(commands.getAddCommands(oldTables, schemaTables));
         return when.all(
             _.map(oldTables, function (table) {
                 return utils.getIndexes(table).then(function (indexes) {
-                    modifyUniCommands = modifyUniCommands.concat(modifyUniqueCommands(table, indexes));
+                    modifyUniCommands = modifyUniCommands.concat(commands.modifyUniqueCommands(table, indexes));
                 });
             })
         );
@@ -205,37 +164,24 @@ migrateUp = function () {
         return when.all(
             _.map(oldTables, function (table) {
                 return utils.getColumns(table).then(function (columns) {
-                    addColumns = addColumns.concat(addColumnCommands(table, columns));
+                    migrateOps = migrateOps.concat(commands.addColumnCommands(table, columns));
                 });
             })
         );
 
     }).then(function () {
-        modifyUniCommands = _.compact(modifyUniCommands);
+        migrateOps = migrateOps.concat(_.compact(modifyUniCommands));
 
-        // delete tables
-        if (!_.isEmpty(deleteCommands)) {
-            commands = commands.concat(deleteCommands);
-        }
-        // add tables
-        if (!_.isEmpty(addCommands)) {
-            commands = commands.concat(addCommands);
-        }
-        // add columns if needed
-        if (!_.isEmpty(addColumns)) {
-            commands = commands.concat(addColumns);
-        }
-        // add/drop unique constraint
-        if (!_.isEmpty(modifyUniCommands)) {
-            commands = commands.concat(modifyUniCommands);
-        }
         // execute the commands in sequence
-        if (!_.isEmpty(commands)) {
-            return sequence(commands);
+        if (!_.isEmpty(migrateOps)) {
+            logInfo('Running migrations');
+            return sequence(migrateOps);
         }
         return;
     }).then(function () {
-        return fixtures.updateFixtures();
+        return fixtures.update(fromVersion, toVersion);
+    }).then(function () {
+        return populateDefaultSettings();
     });
 };
 

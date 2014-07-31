@@ -1,43 +1,19 @@
 /*globals describe, before, beforeEach, afterEach, it*/
-var testUtils = require('../../utils'),
-    should = require('should'),
-    _ = require("lodash"),
+/*jshint expr:true*/
+var testUtils       = require('../../utils'),
+    should          = require('should'),
 
     // Stuff we are testing
-    Models = require('../../../server/models'),
-    knex = require('../../../server/models/base').knex;
+    AppFieldsModel  = require('../../../server/models').AppField,
+    context         = testUtils.context.admin;
 
 describe('App Fields Model', function () {
+    // Keep the DB clean
+    before(testUtils.teardown);
+    afterEach(testUtils.teardown);
+    beforeEach(testUtils.setup('app_field'));
 
-    var AppFieldsModel = Models.AppField;
-
-    before(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
-
-    beforeEach(function (done) {
-        testUtils.initData()
-            .then(function () {
-                return testUtils.insertApps();
-            })
-            .then(function () {
-                done();
-            }).catch(done);
-    });
-
-    afterEach(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
-
-    after(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
+    should.exist(AppFieldsModel);
 
     it('can findAll', function (done) {
         AppFieldsModel.findAll().then(function (results) {
@@ -54,6 +30,8 @@ describe('App Fields Model', function () {
         AppFieldsModel.findOne({id: 1}).then(function (foundAppField) {
             should.exist(foundAppField);
 
+            foundAppField.get('created_at').should.be.an.instanceof(Date);
+
             done();
         }).catch(done);
     });
@@ -62,13 +40,13 @@ describe('App Fields Model', function () {
         AppFieldsModel.findOne({id: 1}).then(function (foundAppField) {
             should.exist(foundAppField);
 
-            return foundAppField.set({value: "350"}).save();
+            return foundAppField.set({value: '350'}).save(null, context);
         }).then(function () {
             return AppFieldsModel.findOne({id: 1});
         }).then(function (updatedAppField) {
             should.exist(updatedAppField);
 
-            updatedAppField.get("value").should.equal("350");
+            updatedAppField.get('value').should.equal('350');
 
             done();
         }).catch(done);

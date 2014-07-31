@@ -1,11 +1,16 @@
-import ajax from 'ghost/utils/ajax';
-import AuthenticatedRoute from 'ghost/routes/authenticated';
-import SettingsModel from 'ghost/models/settings';
+import loadingIndicator from 'ghost/mixins/loading-indicator';
+import CurrentUserSettings from 'ghost/mixins/current-user-settings';
 
-var SettingsGeneralRoute = AuthenticatedRoute.extend({
+var SettingsGeneralRoute = Ember.Route.extend(SimpleAuth.AuthenticatedRouteMixin, loadingIndicator, CurrentUserSettings, {
+    beforeModel: function () {
+        return this.currentUser()
+            .then(this.transitionAuthor())
+            .then(this.transitionEditor());
+    },
+
     model: function () {
-        return ajax('/ghost/api/v0.1/settings/?type=blog,theme,app').then(function (resp) {
-            return SettingsModel.create(resp);
+        return this.store.find('setting', { type: 'blog,theme' }).then(function (records) {
+            return records.get('firstObject');
         });
     }
 });

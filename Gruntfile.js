@@ -11,7 +11,6 @@ var path           = require('path'),
     _              = require('lodash'),
     buildDirectory = path.resolve(process.cwd(), '.build'),
     distDirectory  = path.resolve(process.cwd(), '.dist'),
-    bootstrap      = require('./core/bootstrap'),
 
     // ## Build File Patterns
     // A list of files and patterns to include when creating a release zip.
@@ -42,8 +41,6 @@ var path           = require('path'),
         var cfg = {
             // #### Common paths used by tasks
             paths: {
-                // adminAssets: './core/client/', ?? who knows...
-                adminOldAssets: './core/clientold/assets',
                 build: buildDirectory,
                 releaseBuild: path.join(buildDirectory, 'release'),
                 dist: distDirectory,
@@ -58,28 +55,17 @@ var path           = require('path'),
             // Watch files and livereload in the browser during development.
             // See the [grunt dev](#live%20reload) task for how this is used.
             watch: {
-                handlebars: {
-                    files: ['core/clientold/tpl/**/*.hbs'],
-                    tasks: ['handlebars']
-                },
                 shared: {
                     files: ['core/shared/**/*.js'],
-                    tasks: ['concat:dev', 'concat:dev-ember']
+                    tasks: ['concat:dev']
                 },
-                'handlebars-ember': {
+                'emberTemplates': {
                     files: ['core/client/**/*.hbs'],
                     tasks: ['emberTemplates:dev']
                 },
                 ember: {
                     files: ['core/client/**/*.js'],
-                    tasks: ['clean:tmp', 'transpile', 'concat_sourcemap']
-                },
-                concat: {
-                    files: [
-                        'core/clientold/*.js',
-                        'core/clientold/**/*.js'
-                    ],
-                    tasks: ['concat']
+                    tasks: ['clean:tmp', 'transpile', 'concat_sourcemap:dev']
                 },
                 'ghost-ui': {
                     files: [
@@ -173,7 +159,9 @@ var path           = require('path'),
 
                 // #### All Unit tests
                 unit: {
-                    src: ['core/test/unit/**/*_spec.js']
+                    src: [
+                        'core/test/unit/**/*_spec.js'
+                    ]
                 },
 
                 // ##### Groups of unit tests
@@ -221,10 +209,11 @@ var path           = require('path'),
 
                 // #### All Route tests
                 routes: {
-                    src: ['core/test/functional/routes/**/*_test.js']
+                    src: [
+                        'core/test/functional/routes/**/*_test.js'
+                    ]
                 }
             },
-
 
             // ### grunt-shell
             // Command line tools where it's easier to run a command directly than configure a grunt plugin
@@ -233,7 +222,7 @@ var path           = require('path'),
                 // Used as part of `grunt init`. See the section on [Building Assets](#building%20assets) for more
                 // information.
                 bower: {
-                    command: path.resolve(__dirname.replace(' ', '\\ ') + '/node_modules/.bin/bower install'),
+                    command: path.resolve(__dirname.replace(' ', '\\ ') + '/node_modules/.bin/bower --allow-root install'),
                     options: {
                         stdout: true
                     }
@@ -253,23 +242,6 @@ var path           = require('path'),
                 }
             },
 
-            // ### grunt-contrib-handlebars
-            // Compile handlebars templates into a JST file for the admin client (old)
-            handlebars: {
-                core: {
-                    options: {
-                        namespace: 'JST',
-                        processName: function (filename) {
-                            filename = filename.replace('core/clientold/tpl/', '');
-                            return filename.replace('.hbs', '');
-                        }
-                    },
-                    files: {
-                        'core/clientold/tpl/hbs-tpl.js': 'core/clientold/tpl/**/*.hbs'
-                    }
-                }
-            },
-
             // ### grunt-ember-templates
             // Compiles handlebar templates for ember
             emberTemplates: {
@@ -278,13 +250,30 @@ var path           = require('path'),
                         templateBasePath: /core\/client\//,
                         templateFileExtensions: /\.hbs/,
                         templateRegistration: function (name, template) {
-                            return grunt.config.process("define('ghost/") + name + "', ['exports'], function(__exports__){ __exports__['default'] = " + template + "; });";
+                            return grunt.config.process('define(\'ghost/') +
+                                name + '\', [\'exports\'], function(__exports__){ __exports__[\'default\'] = ' +
+                                template + '; });';
                         }
                     },
                     files: {
-                        "core/built/scripts/templates-ember.js": "core/client/templates/**/*.hbs"
+                        'core/built/scripts/templates-dev.js': 'core/client/templates/**/*.hbs'
                     }
-                }
+                },
+
+                prod: {
+                    options: {
+                        templateBasePath: /core\/client\//,
+                        templateFileExtensions: /\.hbs/,
+                        templateRegistration: function (name, template) {
+                            return grunt.config.process('define(\'ghost/') +
+                                name + '\', [\'exports\'], function(__exports__){ __exports__[\'default\'] = ' +
+                                template + '; });';
+                        }
+                    },
+                    files: {
+                        'core/built/scripts/templates.js': 'core/client/templates/**/*.hbs'
+                    }
+                },
             },
 
             // ### grunt-es6-module-transpiler
@@ -298,18 +287,26 @@ var path           = require('path'),
                     files: [{
                         expand: true,
                         cwd: 'core/client/',
-                        src: ['**/*.js'],
+                        src: ['**/*.js', '!loader.js', '!config-*.js'],
                         dest: '.tmp/ember-transpiled/'
                     }]
                 }
             },
 
-            // ### grunt-es6-module-transpiler
-            // Compiles Ember es6 modules
+            // ### grunt-concat-sourcemap
+            // Concatenates transpiled ember app
             concat_sourcemap: {
-                client: {
-                    src: ['.tmp/ember-transpiled/**/*.js'],
-                    dest: 'core/built/scripts/ghost-dev-ember.js',
+                dev: {
+                    src: ['.tmp/ember-transpiled/**/*.js', 'core/client/loader.js'],
+                    dest: 'core/built/scripts/ghost-dev.js',
+                    options: {
+                        sourcesContent: true
+                    }
+                },
+                prod: {
+                    src: ['.tmp/ember-transpiled/**/*.js', 'core/built/scripts/templates.js',
+                    'core/client/loader.js'],
+                    dest: 'core/built/scripts/ghost.js',
                     options: {
                         sourcesContent: true
                     }
@@ -363,10 +360,8 @@ var path           = require('path'),
                         dest: 'core/client/assets/',
                         expand: true
                     }, {
-                        cwd: 'bower_components/ghost-ui/dist/',
-                        src: ['**'],
-                        dest: 'core/clientold/assets/',
-                        expand: true
+                        src: 'core/client/config-dev.js',
+                        dest: 'core/client/config.js'
                     }]
                 },
                 prod: {
@@ -381,10 +376,8 @@ var path           = require('path'),
                         dest: 'core/client/assets/',
                         expand: true
                     }, {
-                        cwd: 'bower_components/ghost-ui/dist/',
-                        src: ['**'],
-                        dest: 'core/clientold/assets/',
-                        expand: true
+                        src: 'core/client/config-prod.js',
+                        dest: 'core/client/config.js'
                     }]
                 },
                 release: {
@@ -397,11 +390,6 @@ var path           = require('path'),
                         cwd: 'bower_components/ghost-ui/dist/',
                         src: ['**'],
                         dest: 'core/client/assets/',
-                        expand: true
-                    }, {
-                        cwd: 'bower_components/ghost-ui/dist/',
-                        src: ['**'],
-                        dest: 'core/clientold/assets/',
                         expand: true
                     }, {
                         expand: true,
@@ -427,151 +415,74 @@ var path           = require('path'),
             // ### grunt-contrib-concat
             // concatenate multiple JS files into a single file ready for use
             concat: {
-                dev: {
-                    files: {
-                        'core/built/scripts/vendor.js': [
-                            'bower_components/jquery/dist/jquery.js',
-                            'bower_components/jquery-ui/ui/jquery-ui.js',
-                            'core/clientold/assets/lib/jquery-utils.js',
-                            'core/clientold/assets/lib/uploader.js',
+                'dev': {
+                    nonull: true,
+                    dest: 'core/built/scripts/vendor-dev.js',
+                    src: [
+                        'bower_components/loader.js/loader.js',
+                        'bower_components/jquery/dist/jquery.js',
+                        'bower_components/lodash/dist/lodash.js',
+                        'bower_components/handlebars/handlebars.js',
+                        'bower_components/ember/ember.js',
+                        'bower_components/ember-data/ember-data.js',
+                        'bower_components/ember-resolver/dist/ember-resolver.js',
+                        'bower_components/ic-ajax/dist/globals/main.js',
+                        'bower_components/ember-load-initializers/ember-load-initializers.js',
+                        'bower_components/validator-js/validator.js',
+                        'bower_components/codemirror/lib/codemirror.js',
+                        'bower_components/codemirror/addon/mode/overlay.js',
+                        'bower_components/codemirror/mode/markdown/markdown.js',
+                        'bower_components/codemirror/mode/gfm/gfm.js',
+                        'bower_components/showdown/src/showdown.js',
+                        'bower_components/moment/moment.js',
+                        'bower_components/keymaster/keymaster.js',
+                        'bower_components/device/lib/device.js',
+                        'bower_components/jquery-ui/ui/jquery-ui.js',
+                        'bower_components/jquery-file-upload/js/jquery.fileupload.js',
+                        'bower_components/fastclick/lib/fastclick.js',
+                        'bower_components/nprogress/nprogress.js',
+                        'bower_components/ember-simple-auth/simple-auth.js',
+                        'bower_components/ember-simple-auth/simple-auth-oauth2.js',
+                        'bower_components/google-caja/html-css-sanitizer-bundle.js',
 
-                            'bower_components/lodash/dist/lodash.underscore.js',
-                            'bower_components/backbone/backbone.js',
-                            'bower_components/handlebars/handlebars.runtime.js',
-                            'bower_components/moment/moment.js',
-                            'bower_components/jquery-file-upload/js/jquery.fileupload.js',
-                            'bower_components/codemirror/lib/codemirror.js',
-                            'bower_components/codemirror/addon/mode/overlay.js',
-                            'bower_components/codemirror/mode/markdown/markdown.js',
-                            'bower_components/codemirror/mode/gfm/gfm.js',
-                            'bower_components/showdown/src/showdown.js',
-                            'bower_components/validator-js/validator.js',
-
-                            'core/shared/lib/showdown/extensions/ghostimagepreview.js',
-                            'core/shared/lib/showdown/extensions/ghostgfm.js',
-
-                            // TODO: Remove or replace
-                            'core/clientold/assets/vendor/shortcuts.js',
-                            'core/clientold/assets/vendor/to-title-case.js',
-
-                            'bower_components/Countable/Countable.js',
-                            'bower_components/fastclick/lib/fastclick.js',
-                            'bower_components/nprogress/nprogress.js'
-                        ],
-
-                        'core/built/scripts/helpers.js': [
-                            'core/clientold/init.js',
-
-                            'core/clientold/mobile-interactions.js',
-                            'core/clientold/toggle.js',
-                            'core/clientold/markdown-actions.js',
-                            'core/clientold/helpers/index.js',
-                            'core/clientold/assets/lib/editor/index.js',
-                            'core/clientold/assets/lib/editor/markerManager.js',
-                            'core/clientold/assets/lib/editor/uploadManager.js',
-                            'core/clientold/assets/lib/editor/markdownEditor.js',
-                            'core/clientold/assets/lib/editor/htmlPreview.js',
-                            'core/clientold/assets/lib/editor/scrollHandler.js',
-                            'core/clientold/assets/lib/editor/mobileCodeMirror.js'
-                        ],
-
-                        'core/built/scripts/templates.js': [
-                            'core/clientold/tpl/hbs-tpl.js'
-                        ],
-
-                        'core/built/scripts/models.js': [
-                            'core/clientold/models/**/*.js'
-                        ],
-
-                        'core/built/scripts/views.js': [
-                            'core/clientold/views/**/*.js',
-                            'core/clientold/router.js'
-                        ]
-                    }
+                        'core/shared/lib/showdown/extensions/ghostimagepreview.js',
+                        'core/shared/lib/showdown/extensions/ghostgfm.js'
+                    ]
                 },
-                'dev-ember': {
-                    files: {
-                        'core/built/scripts/vendor-ember.js': [
-                            'bower_components/loader.js/loader.js',
-                            'bower_components/jquery/dist/jquery.js',
-                            'bower_components/lodash/dist/lodash.js',
-                            'bower_components/handlebars/handlebars.js',
-                            'bower_components/ember/ember.js',
-                            'bower_components/ember-data/ember-data.js',
-                            'bower_components/ember-resolver/dist/ember-resolver.js',
-                            'bower_components/ic-ajax/dist/globals/main.js',
-                            'bower_components/ember-load-initializers/ember-load-initializers.js',
-                            'bower_components/validator-js/validator.js',
-                            'bower_components/codemirror/lib/codemirror.js',
-                            'bower_components/codemirror/addon/mode/overlay.js',
-                            'bower_components/codemirror/mode/markdown/markdown.js',
-                            'bower_components/codemirror/mode/gfm/gfm.js',
-                            'bower_components/showdown/src/showdown.js',
-                            'bower_components/moment/moment.js',
 
-                            'bower_components/jquery-ui/ui/jquery-ui.js',
-                            'bower_components/jquery-file-upload/js/jquery.fileupload.js',
+                'prod': {
+                    nonull: true,
+                    dest: 'core/built/scripts/vendor.js',
+                    src: [
+                        'bower_components/loader.js/loader.js',
+                        'bower_components/jquery/dist/jquery.js',
+                        'bower_components/lodash/dist/lodash.js',
+                        'bower_components/handlebars/handlebars.runtime.js',
+                        'bower_components/ember/ember.prod.js',
+                        'bower_components/ember-data/ember-data.prod.js',
+                        'bower_components/ember-resolver/dist/ember-resolver.js',
+                        'bower_components/ic-ajax/dist/globals/main.js',
+                        'bower_components/ember-load-initializers/ember-load-initializers.js',
+                        'bower_components/validator-js/validator.js',
+                        'bower_components/codemirror/lib/codemirror.js',
+                        'bower_components/codemirror/addon/mode/overlay.js',
+                        'bower_components/codemirror/mode/markdown/markdown.js',
+                        'bower_components/codemirror/mode/gfm/gfm.js',
+                        'bower_components/showdown/src/showdown.js',
+                        'bower_components/moment/moment.js',
+                        'bower_components/keymaster/keymaster.js',
+                        'bower_components/device/lib/device.js',
+                        'bower_components/jquery-ui/ui/jquery-ui.js',
+                        'bower_components/jquery-file-upload/js/jquery.fileupload.js',
+                        'bower_components/fastclick/lib/fastclick.js',
+                        'bower_components/nprogress/nprogress.js',
+                        'bower_components/ember-simple-auth/simple-auth.js',
+                        'bower_components/ember-simple-auth/simple-auth-oauth2.js',
+                        'bower_components/google-caja/html-css-sanitizer-bundle.js',
 
-                            'core/shared/lib/showdown/extensions/ghostimagepreview.js',
-                            'core/shared/lib/showdown/extensions/ghostgfm.js',
-                        ]
-                    }
-                },
-                prod: {
-                    files: {
-                        'core/built/scripts/ghost.js': [
-                            'bower_components/jquery/dist/jquery.js',
-                            'bower_components/jquery-ui/ui/jquery-ui.js',
-                            'core/clientold/assets/lib/jquery-utils.js',
-                            'core/clientold/assets/lib/uploader.js',
-
-                            'bower_components/lodash/dist/lodash.underscore.js',
-                            'bower_components/backbone/backbone.js',
-                            'bower_components/handlebars/handlebars.runtime.js',
-                            'bower_components/moment/moment.js',
-                            'bower_components/jquery-file-upload/js/jquery.fileupload.js',
-                            'bower_components/codemirror/lib/codemirror.js',
-                            'bower_components/codemirror/addon/mode/overlay.js',
-                            'bower_components/codemirror/mode/markdown/markdown.js',
-                            'bower_components/codemirror/mode/gfm/gfm.js',
-                            'bower_components/showdown/src/showdown.js',
-                            'bower_components/validator-js/validator.js',
-
-                            'core/shared/lib/showdown/extensions/ghostimagepreview.js',
-                            'core/shared/lib/showdown/extensions/ghostgfm.js',
-
-                            // TODO: Remove or replace
-                            'core/clientold/assets/vendor/shortcuts.js',
-                            'core/clientold/assets/vendor/to-title-case.js',
-
-                            'bower_components/Countable/Countable.js',
-                            'bower_components/fastclick/lib/fastclick.js',
-                            'bower_components/nprogress/nprogress.js',
-
-                            'core/clientold/init.js',
-
-                            'core/clientold/mobile-interactions.js',
-                            'core/clientold/toggle.js',
-                            'core/clientold/markdown-actions.js',
-                            'core/clientold/helpers/index.js',
-
-                            'core/clientold/assets/lib/editor/index.js',
-                            'core/clientold/assets/lib/editor/markerManager.js',
-                            'core/clientold/assets/lib/editor/uploadManager.js',
-                            'core/clientold/assets/lib/editor/markdownEditor.js',
-                            'core/clientold/assets/lib/editor/htmlPreview.js',
-                            'core/clientold/assets/lib/editor/scrollHandler.js',
-                            'core/clientold/assets/lib/editor/mobileCodeMirror.js',
-
-                            'core/clientold/tpl/hbs-tpl.js',
-
-                            'core/clientold/models/**/*.js',
-
-                            'core/clientold/views/**/*.js',
-
-                            'core/clientold/router.js'
-                        ]
-                    }
+                        'core/shared/lib/showdown/extensions/ghostimagepreview.js',
+                        'core/shared/lib/showdown/extensions/ghostgfm.js'
+                    ]
                 }
             },
 
@@ -579,19 +490,23 @@ var path           = require('path'),
             // Minify concatenated javascript files ready for production
             uglify: {
                 prod: {
+                    options: {
+                        sourceMap: true,
+                    },
                     files: {
-                        'core/built/scripts/ghost.min.js': 'core/built/scripts/ghost.js',
-                        'core/built/public/jquery.min.js': 'core/built/public/jquery.js'
+                        'core/built/public/jquery.min.js': 'core/built/public/jquery.js',
+                        'core/built/scripts/vendor.min.js': 'core/built/scripts/vendor.js',
+                        'core/built/scripts/ghost.min.js': 'core/built/scripts/ghost.js'
                     }
                 }
             },
 
             // ### grunt-update-submodules
             // Grunt task to update git submodules
-            "update_submodules": {
+            'update_submodules': {
                 default: {
                     options: {
-                        params: false // blanks command-line parameters
+                        params: '--init'
                     }
                 }
             }
@@ -607,7 +522,7 @@ var path           = require('path'),
         // This really ought to be refactored into a separate grunt task module
         grunt.registerTask('spawnCasperJS', function (target) {
 
-            target = _.contains(['client', 'clientold', 'frontend'], target) ? target + '/' : undefined;
+            target = _.contains(['client', 'frontend', 'setup'], target) ? target + '/' : undefined;
 
             var done = this.async(),
                 options = ['host', 'noPort', 'port', 'email', 'password'],
@@ -695,13 +610,30 @@ var path           = require('path'),
                 cfg.express.test.options.node_env = process.env.NODE_ENV;
             });
 
-        // #### Load Config *(Utility Task)*
+        // #### Ensure Config *(Utility Task)*
         // Make sure that we have a `config.js` file when running tests
         // Ghost requires a `config.js` file to specify the database settings etc. Ghost comes with an example file:
         // `config.example.js` which is copied and renamed to `config.js` by the bootstrap process
-        grunt.registerTask('loadConfig', function () {
-            var done = this.async();
+        grunt.registerTask('ensureConfig', function () {
+            var bootstrap = require('./core/bootstrap'),
+                done = this.async();
             bootstrap().then(function () {
+                done();
+            }).catch(function (err) {
+                grunt.fail.fatal(err.stack);
+            });
+        });
+
+        // #### Reset Database to "New" state *(Utility Task)*
+        // Drops all database tables and then runs the migration process to put the database
+        // in a "new" state.
+        grunt.registerTask('cleanDatabase', function () {
+            var done = this.async(),
+                migration = require('./core/server/data/migration');
+
+            migration.reset().then(function () {
+                return migration.init();
+            }).then(function () {
                 done();
             }).catch(function (err) {
                 grunt.fail.fatal(err.stack);
@@ -711,14 +643,24 @@ var path           = require('path'),
         // ### Validate
         // **Main testing task**
         //
-        // `grunt validate` will lint and test your local Ghost codebase.
+        // `grunt validate` will build, lint and test your local Ghost codebase.
         //
         // `grunt validate` is one of the most important and useful grunt tasks that we have available to use. It
-        // manages the setup and running of jshint as well as the 4 test suites. See the individual sub tasks below
-        // for details of each of the test suites.
+        // manages the build of your environment and then calls `grunt test`
         //
-        // `grunt validate` is called by `npm test`.
+        // `grunt validate` is called by `npm test` and is used by Travis.
         grunt.registerTask('validate', 'Run tests and lint code',
+            ['init', 'test']);
+
+        // ### Test
+        // **Main testing task**
+        //
+        // `grunt test` will lint and test your pre-built local Ghost codebase.
+        //
+        // `grunt test` runs jshint as well as the 4 test suites. See the individual sub tasks below for details of
+        // each of the test suites.
+        //
+        grunt.registerTask('test', 'Run tests and lint code',
             ['jshint', 'test-routes', 'test-unit', 'test-integration', 'test-functional']);
 
         // ### Unit Tests *(sub task)*
@@ -739,7 +681,7 @@ var path           = require('path'),
         // Unit tests do **not** touch the database.
         // A coverage report can be generated for these tests using the `grunt test-coverage` task.
         grunt.registerTask('test-unit', 'Run unit tests (mocha)',
-            ['clean:test', 'setTestEnv', 'loadConfig', 'mochacli:unit']);
+            ['clean:test', 'setTestEnv', 'ensureConfig', 'mochacli:unit']);
 
         // ### Integration tests *(sub task)*
         // `grunt test-integration` will run just the integration tests
@@ -756,13 +698,19 @@ var path           = require('path'),
         // [should](https://github.com/visionmedia/should.js) to describe the tests in a highly readable style.
         // Integration tests are different to the unit tests because they make requests to the database.
         //
+        // If you need to run an individual integration test file you can do so, providing you have mocha installed
+        // globally, by using a command in the form (replace path to api_tags_spec.js with the test file you want to
+        // run):
+        //
+        // `NODE_ENV=testing mocha --timeout=15000 --ui=bdd --reporter=spec core/test/integration/api/api_tags_spec.js`
+        //
         // Their purpose is to test that both the api and models behave as expected when the database layer is involved.
         // These tests are run against sqlite3, mysql and pg on travis and ensure that differences between the databases
         // don't cause bugs. At present, pg often fails and is not officially supported.
         //
         // A coverage report can be generated for these tests using the `grunt test-coverage` task.
         grunt.registerTask('test-integration', 'Run integration tests (mocha + db access)',
-            ['clean:test', 'setTestEnv', 'loadConfig', 'mochacli:integration']);
+            ['clean:test', 'setTestEnv', 'ensureConfig', 'mochacli:integration']);
 
         // ### Route tests *(sub task)*
         // `grunt test-routes` will run just the route tests
@@ -783,16 +731,26 @@ var path           = require('path'),
         // are working as expected, including checking the headers and status codes received. It is very easy and
         // quick to test many permutations of routes / urls in the system.
         grunt.registerTask('test-routes', 'Run functional route tests (mocha)',
-            ['clean:test', 'setTestEnv', 'loadConfig', 'mochacli:routes']);
+            ['clean:test', 'setTestEnv', 'ensureConfig', 'mochacli:routes']);
+
+        // ### Functional tests for the setup process
+        // `grunt test-functional-setup will run just the functional tests for the setup page.
+        //
+        // Setup only works with a brand new database, so it needs to run isolated from the rest of
+        // the functional tests.
+        grunt.registerTask('test-functional-setup', 'Run functional tests for setup',
+            ['clean:test', 'setTestEnv', 'ensureConfig', 'cleanDatabase', 'express:test',
+            'spawnCasperJS:setup', 'express:test:stop']
+        );
 
         // ### Functional tests *(sub task)*
         // `grunt test-functional` will run just the functional tests
         //
         // You can use the `--target` argument to run any individual test file, or the admin or frontend tests:
         //
-        // `grunt test-functional --target=admin/editor_test.js` - run just the editor tests
+        // `grunt test-functional --target=client/editor_test.js` - run just the editor tests
         //
-        // `grunt test-functional --target=admin/` - run all of the tests in the admin directory
+        // `grunt test-functional --target=client/` - run all of the tests in the client directory
         //
         // Functional tests are run with [phantom.js](http://phantomjs.org/) and defined using the testing api from
         // [casper.js](http://docs.casperjs.org/en/latest/testing.html).
@@ -804,7 +762,8 @@ var path           = require('path'),
         // The purpose of the functional tests is to ensure that Ghost is working as is expected from a user perspective
         // including buttons and other important interactions in the admin UI.
         grunt.registerTask('test-functional', 'Run functional interface tests (CasperJS)',
-            ['clean:test', 'setTestEnv', 'loadConfig', 'copy:dev', 'express:test', 'spawnCasperJS', 'express:test:stop']
+            ['clean:test', 'setTestEnv', 'ensureConfig', 'cleanDatabase', 'express:test', 'spawnCasperJS', 'express:test:stop',
+            'test-functional-setup']
         );
 
         // ### Coverage
@@ -817,7 +776,7 @@ var path           = require('path'),
         //
         // Key areas for coverage are: helpers and theme elements, apps / GDK, the api and model layers.
         grunt.registerTask('test-coverage', 'Generate unit and integration (mocha) tests coverage report',
-            ['clean:test', 'setTestEnv', 'loadConfig', 'shell:coverage']);
+            ['clean:test', 'setTestEnv', 'ensureConfig', 'shell:coverage']);
 
 
         // ## Building assets
@@ -854,9 +813,13 @@ var path           = require('path'),
 
         // ### Ember Build *(Utility Task)*
         // All tasks related to building the Ember client code including transpiling ES6 modules and building templates
-        grunt.registerTask('emberBuild', 'Build Ember JS & templates for development',
-            ['clean:tmp', 'emberTemplates:dev', 'transpile', 'concat_sourcemap']);
+        grunt.registerTask('emberBuildDev', 'Build Ember JS & templates for development',
+            ['clean:tmp', 'emberTemplates:dev', 'transpile', 'concat_sourcemap:dev']);
 
+        // ### Ember Build *(Utility Task)*
+        // All tasks related to building the Ember client code including transpiling ES6 modules and building templates
+        grunt.registerTask('emberBuildProd', 'Build Ember JS & templates for production',
+            ['clean:tmp', 'emberTemplates:prod', 'transpile', 'concat_sourcemap:prod']);
 
         // ### Init assets
         // `grunt init` - will run an initial asset build for you
@@ -877,15 +840,15 @@ var path           = require('path'),
         //
         // It is otherwise the same as running `grunt`, but is only used when running Ghost in the `production` env.
         grunt.registerTask('prod', 'Build JS & templates for production',
-            ['handlebars', 'concat', 'uglify', 'copy:prod', 'master-warn']);
+            ['concat:prod', 'copy:prod', 'emberBuildProd', 'uglify', 'master-warn']);
 
         // ### Default asset build
         // `grunt` - default grunt task
         //
-        // Compiles handlebars templates, concatenates javascript files for the admin UI into a handful of files instead
+        // Compiles concatenates javascript files for the admin UI into a handful of files instead
         // of many files, and makes sure the bower dependencies are in the right place.
         grunt.registerTask('default', 'Build JS & templates for development',
-            ['handlebars', 'concat', 'copy:dev', 'emberBuild']);
+            ['concat:dev', 'copy:dev', 'emberBuildDev']);
 
         // ### Live reload
         // `grunt dev` - build assets on the fly whilst developing
@@ -899,7 +862,7 @@ var path           = require('path'),
         //
         // Note that the current implementation of watch only works with casper, not other themes.
         grunt.registerTask('dev', 'Dev Mode; watch files and restart server on changes',
-           ['handlebars', 'concat', 'copy:dev', 'emberBuild', 'express:dev', 'watch']);
+           ['concat:dev', 'copy:dev', 'emberBuildDev', 'express:dev', 'watch']);
 
         // ### Release
         // Run `grunt release` to create a Ghost release zip file.
@@ -908,11 +871,12 @@ var path           = require('path'),
         // either environment, and packages all the files up into a zip.
         grunt.registerTask('release',
             'Release task - creates a final built zip\n' +
-            ' - Do our standard build steps (handlebars, etc)\n' +
+            ' - Do our standard build steps \n' +
             ' - Copy files to release-folder/#/#{version} directory\n' +
             ' - Clean out unnecessary files (travis, .git*, etc)\n' +
             ' - Zip files in release-folder to dist-folder/#{version} directory',
-            ['shell:bower', 'update_submodules', 'handlebars', 'concat', 'uglify', 'clean:release', 'copy:release', 'compress:release']);
+            ['shell:bower', 'update_submodules', 'concat:prod', 'copy:prod', 'emberBuildProd', 'uglify',
+            'clean:release', 'copy:release', 'compress:release']);
     };
 
 // Export the configuration

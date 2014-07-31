@@ -1,4 +1,5 @@
 /*global describe, it, before, after */
+/*jshint expr:true*/
 var supertest     = require('supertest'),
     express       = require('express'),
     should        = require('should'),
@@ -11,75 +12,40 @@ var supertest     = require('supertest'),
 
 
 describe('DB API', function () {
-    var user = testUtils.DataGenerator.forModel.users[0],
-        csrfToken = '';
+    var accesstoken = '';
 
     before(function (done) {
         var app = express();
+            app.set('disableLoginLimiter', true);
 
+        // starting ghost automatically populates the db
+        // TODO: prevent db init, and manage bringing up the DB with fixtures ourselves
         ghost({app: app}).then(function (_httpServer) {
             httpServer = _httpServer;
-            // request = supertest(app);
             request = supertest.agent(app);
 
-            testUtils.clearData()
-                .then(function () {
-                    return testUtils.initData();
-                })
-                .then(function () {
-                    return testUtils.insertDefaultFixtures();
-                })
-                .then(function () {
-
-                    request.get('/ghost/signin/')
-                        .expect(200)
-                        .end(function (err, res) {
-                            if (err) {
-                                return done(err);
-                            }
-
-                            var pattern_meta = /<meta.*?name="csrf-param".*?content="(.*?)".*?>/i;
-                            pattern_meta.should.exist;
-                            csrfToken = res.text.match(pattern_meta)[1];
-
-                            process.nextTick(function() {
-                                request.post('/ghost/signin/')
-                                    .set('X-CSRF-Token', csrfToken)
-                                    .send({email: user.email, password: user.password})
-                                    .expect(200)
-                                    .end(function (err, res) {
-                                        if (err) {
-                                            return done(err);
-                                        }
-
-                                        request.saveCookies(res);
-                                        request.get('/ghost/')
-                                            .expect(200)
-                                            .end(function (err, res) {
-                                                if (err) {
-                                                    return done(err);
-                                                }
-                                                csrfToken = res.text.match(pattern_meta)[1];
-                                                done();
-                                            });
-                                    });
-
-                            });
-
-                        });
-                }).catch(done);
+        }).then(function () {
+            return testUtils.doAuth(request);
+        }).then(function (token) {
+            accesstoken = token;
+            done();
         }).catch(function (e) {
             console.log('Ghost Error: ', e);
             console.log(e.stack);
         });
     });
 
-    after(function () {
-        httpServer.close();
+    after(function (done) {
+        testUtils.clearData().then(function () {
+            httpServer.close();
+            done();
+        });
     });
 
     it('attaches the Content-Disposition header on export', function (done) {
         request.get(testUtils.API.getApiQuery('db/'))
+            .set('Authorization', 'Bearer ' + accesstoken)
+            .expect('Content-Type', /json/)
             .expect(200)
             .expect('Content-Disposition', /Attachment; filename="[A-Za-z0-9._-]+\.json"/)
             .end(function (err, res) {
@@ -88,7 +54,6 @@ describe('DB API', function () {
                 }
 
                 should.not.exist(res.headers['x-cache-invalidate']);
-                res.should.be.json;
                 var jsonResponse = res.body;
                 should.exist(jsonResponse.db);
                 jsonResponse.db.should.have.length(1);

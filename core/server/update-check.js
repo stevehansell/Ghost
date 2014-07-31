@@ -5,14 +5,14 @@
 // Blog owners can opt-out of update checks by setting 'updateCheck: false' in their config.js
 //
 // The data collected is as follows:
-// - blog id - a hash of the blog hostname, pathname and dbHash, we do not store URL, IP or other identifiable info
+// - blog id - a hash of the blog hostname, pathname and dbHash. No identifiable info is stored.
 // - ghost version
 // - node version
 // - npm version
 // - env - production or development
-// - database type - SQLite, MySQL, pg
+// - database type - SQLite, MySQL, PostgreSQL
 // - email transport - mail.options.service, or otherwise mail.transport
-// - created date - the date the database was created
+// - created date - database creation date
 // - post count - total number of posts
 // - user count - total number of users
 // - theme - name of the currently active theme
@@ -33,6 +33,7 @@ var crypto   = require('crypto'),
     errors   = require('./errors'),
     packageInfo = require('../../package.json'),
 
+    internal = {context: {internal: true}},
     allowedCheckEnvironments = ['development', 'production'],
     checkEndpoint = 'updates.ghost.org',
     currentVersion = packageInfo.version;
@@ -40,19 +41,19 @@ var crypto   = require('crypto'),
 function updateCheckError(error) {
     errors.logError(
         error,
-        "Checking for updates failed, your blog will continue to function.",
-        "If you get this error repeatedly, please seek help from https://ghost.org/forum."
+        'Checking for updates failed, your blog will continue to function.',
+        'If you get this error repeatedly, please seek help from https://ghost.org/forum.'
     );
 }
 
 function updateCheckData() {
     var data = {},
         ops = [],
-        mailConfig = config().mail;
+        mailConfig = config.mail;
 
-    ops.push(api.settings.read({context: {internal: true}, key: 'dbHash'}).otherwise(errors.rejectError));
-    ops.push(api.settings.read({context: {internal: true}, key: 'activeTheme'}).otherwise(errors.rejectError));
-    ops.push(api.settings.read({context: {internal: true}, key: 'activeApps'})
+    ops.push(api.settings.read(_.extend(internal, {key: 'dbHash'})).otherwise(errors.rejectError));
+    ops.push(api.settings.read(_.extend(internal, {key: 'activeTheme'})).otherwise(errors.rejectError));
+    ops.push(api.settings.read(_.extend(internal, {key: 'activeApps'}))
         .then(function (response) {
             var apps = response.settings[0];
             try {
@@ -64,13 +65,13 @@ function updateCheckData() {
             return _.reduce(apps, function (memo, item) { return memo === '' ? memo + item : memo + ', ' + item; }, '');
         }).otherwise(errors.rejectError));
     ops.push(api.posts.browse().otherwise(errors.rejectError));
-    ops.push(api.users.browse({context: {user: 1}}).otherwise(errors.rejectError));
+    ops.push(api.users.browse(internal).otherwise(errors.rejectError));
     ops.push(nodefn.call(exec, 'npm -v').otherwise(errors.rejectError));
 
     data.ghost_version   = currentVersion;
     data.node_version    = process.versions.node;
     data.env             = process.env.NODE_ENV;
-    data.database_type   = require('./models/base').client;
+    data.database_type   = config.database.client;
     data.email_transport = mailConfig && (mailConfig.options && mailConfig.options.service ? mailConfig.options.service : mailConfig.transport);
 
     return when.settle(ops).then(function (descriptors) {
@@ -80,7 +81,7 @@ function updateCheckData() {
             posts            = descriptors[3].value,
             users            = descriptors[4].value,
             npm              = descriptors[5].value,
-            blogUrl          = url.parse(config().url),
+            blogUrl          = url.parse(config.url),
             blogId           = blogUrl.hostname + blogUrl.pathname.replace(/\//, '') + hash.value;
 
         data.blog_id         = crypto.createHash('md5').update(blogId).digest('hex');
@@ -142,18 +143,17 @@ function updateCheckRequest() {
 // 1. Updates the time we can next make a check
 // 2. Checks if the version in the response is new, and updates the notification setting
 function updateCheckResponse(response) {
-    var ops = [],
-        internalContext = {context: {internal: true}};
+    var ops = [];
 
     ops.push(
         api.settings.edit(
             {settings: [{key: 'nextUpdateCheck', value: response.next_check}]},
-            internalContext
+            internal
         )
         .otherwise(errors.rejectError),
         api.settings.edit(
             {settings: [{key: 'displayUpdateNotification', value: response.version}]},
-            internalContext
+            internal
         )
         .otherwise(errors.rejectError)
     );
@@ -175,11 +175,11 @@ function updateCheck() {
     // 1. updateCheck is defined as false in config.js
     // 2. we've already done a check this session
     // 3. we're not in production or development mode
-    if (config().updateCheck === false || _.indexOf(allowedCheckEnvironments, process.env.NODE_ENV) === -1) {
+    if (config.updateCheck === false || _.indexOf(allowedCheckEnvironments, process.env.NODE_ENV) === -1) {
         // No update check
         deferred.resolve();
     } else {
-        api.settings.read({context: {internal: true}, key: 'nextUpdateCheck'}).then(function (result) {
+        api.settings.read(_.extend(internal, {key: 'nextUpdateCheck'})).then(function (result) {
             var nextUpdateCheck = result.settings[0];
 
             if (nextUpdateCheck && nextUpdateCheck.value && nextUpdateCheck.value > moment().unix()) {
@@ -199,7 +199,7 @@ function updateCheck() {
 }
 
 function showUpdateNotification() {
-    return api.settings.read({context: {internal: true}, key: 'displayUpdateNotification'}).then(function (response) {
+    return api.settings.read(_.extend(internal, {key: 'displayUpdateNotification'})).then(function (response) {
         var display = response.settings[0];
 
         // Version 0.4 used boolean to indicate the need for an update. This special case is

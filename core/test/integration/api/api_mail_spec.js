@@ -1,46 +1,32 @@
 /*globals describe, before, beforeEach, afterEach, it */
+/*jshint expr:true*/
 var testUtils       = require('../../utils'),
     should          = require('should'),
 
     // Stuff we are testing
-    MailAPI         = require('../../../server/api/mail');
-
+    MailAPI         = require('../../../server/api/mail'),
+    mailData = {
+        mail: [{
+            message: {
+                to: 'joe@example.com',
+                subject: 'testemail',
+                html: '<p>This</p>'
+            },
+            options: {}
+        }]
+    };
 
 describe('Mail API', function () {
-    var mailData = {
-            mail: [{
-                message: {
-                    to: 'joe@example.com',
-                    subject: 'testemail',
-                    html: '<p>This</p>'
-                },
-                options: {}
-            }]
-        };
+    // Keep the DB clean
+    before(testUtils.teardown);
+    afterEach(testUtils.teardown);
+    beforeEach(testUtils.setup('perms:mail', 'perms:init'));
 
-    before(function (done) {
-        testUtils.clearData()
-            .then(function () {
-                return testUtils.initData();
-            })
-            .then(function () {
-                return testUtils.insertDefaultFixtures();
-            })
-            .then(function () {
-                done();
-            }).catch(done);
-    });
+    should.exist(MailAPI);
 
-
-    afterEach(function (done) {
-        testUtils.clearData().then(function () {
-            done();
-        }).catch(done);
-    });
-
-
-    it('return correct failure message', function (done) {
-        MailAPI.send(mailData).then(function (response) {
+    it('return correct failure message (internal)', function (done) {
+        MailAPI.send(mailData, testUtils.context.internal).then(function (response) {
+            /*jshint unused:false */
             done();
         }).catch(function (error) {
             error.type.should.eql('EmailError');

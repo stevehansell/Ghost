@@ -1,86 +1,50 @@
 /*global describe, it, before, after */
-var supertest     = require('supertest'),
-    express       = require('express'),
+/*jshint expr:true*/
+var testUtils     = require('../../../utils'),
     should        = require('should'),
-    _             = require('lodash'),
-    testUtils     = require('../../../utils'),
+    supertest     = require('supertest'),
+    express       = require('express'),
 
     ghost         = require('../../../../../core'),
 
     httpServer,
-    request,
-    agent;
-
+    request;
 
 describe('Slug API', function () {
-    var user = testUtils.DataGenerator.forModel.users[0],
-        csrfToken = '';
+    var accesstoken = '';
 
     before(function (done) {
         var app = express();
+        app.set('disableLoginLimiter', true);
 
-        ghost({ app: app }).then(function (_httpServer) {
+        // starting ghost automatically populates the db
+        // TODO: prevent db init, and manage bringing up the DB with fixtures ourselves
+        ghost({app: app}).then(function (_httpServer) {
             httpServer = _httpServer;
             request = supertest.agent(app);
 
-            testUtils.clearData()
-                .then(function () {
-                    return testUtils.initData();
-                })
-                .then(function () {
-                    return testUtils.insertDefaultFixtures();
-                })
-                .then(function () {
-                    request.get('/ghost/signin/')
-                        .expect(200)
-                        .end(function (err, res) {
-                            if (err) {
-                                return done(err);
-                            }
-
-                            var pattern_meta = /<meta.*?name="csrf-param".*?content="(.*?)".*?>/i;
-                            pattern_meta.should.exist;
-                            csrfToken = res.text.match(pattern_meta)[1];
-
-                            process.nextTick(function() {
-                                request.post('/ghost/signin/')
-                                    .set('X-CSRF-Token', csrfToken)
-                                    .send({email: user.email, password: user.password})
-                                    .expect(200)
-                                    .end(function (err, res) {
-                                        if (err) {
-                                            return done(err);
-                                        }
-
-
-                                        request.saveCookies(res);
-                                        request.get('/ghost/')
-                                            .expect(200)
-                                            .end(function (err, res) {
-                                                if (err) {
-                                                    return done(err);
-                                                }
-
-                                                csrfToken = res.text.match(pattern_meta)[1];
-                                                done();
-                                            });
-                                    });
-
-                            });
-                        });
-                }).catch(done);
+        }).then(function () {
+            return testUtils.doAuth(request);
+        }).then(function (token) {
+            accesstoken = token;
+            done();
         }).catch(function (e) {
             console.log('Ghost Error: ', e);
             console.log(e.stack);
         });
     });
 
-    after(function () {
-        httpServer.close();
+    after(function (done) {
+        testUtils.clearData().then(function () {
+            httpServer.close();
+            done();
+        });
     });
 
     it('should be able to get a post slug', function (done) {
         request.get(testUtils.API.getApiQuery('slugs/post/a post title/'))
+            .set('Authorization', 'Bearer ' + accesstoken)
+            .expect('Content-Type', /json/)
             .expect(200)
             .end(function (err, res) {
                 if (err) {
@@ -88,7 +52,6 @@ describe('Slug API', function () {
                 }
 
                 should.not.exist(res.headers['x-cache-invalidate']);
-                res.should.be.json;
                 var jsonResponse = res.body;
                 jsonResponse.should.exist;
                 jsonResponse.slugs.should.exist;
@@ -102,14 +65,15 @@ describe('Slug API', function () {
 
     it('should be able to get a tag slug', function (done) {
         request.get(testUtils.API.getApiQuery('slugs/post/atag/'))
+            .set('Authorization', 'Bearer ' + accesstoken)
+            .expect('Content-Type', /json/)
             .expect(200)
             .end(function (err, res) {
                 if (err) {
                     return done(err);
                 }
-                
+
                 should.not.exist(res.headers['x-cache-invalidate']);
-                res.should.be.json;
                 var jsonResponse = res.body;
                 jsonResponse.should.exist;
                 jsonResponse.slugs.should.exist;
@@ -123,14 +87,15 @@ describe('Slug API', function () {
 
     it('should be able to get a user slug', function (done) {
         request.get(testUtils.API.getApiQuery('slugs/user/user name/'))
+            .set('Authorization', 'Bearer ' + accesstoken)
+            .expect('Content-Type', /json/)
             .expect(200)
             .end(function (err, res) {
                 if (err) {
                     return done(err);
                 }
-                
+
                 should.not.exist(res.headers['x-cache-invalidate']);
-                res.should.be.json;
                 var jsonResponse = res.body;
                 jsonResponse.should.exist;
                 jsonResponse.slugs.should.exist;
@@ -144,14 +109,15 @@ describe('Slug API', function () {
 
     it('should be able to get an app slug', function (done) {
         request.get(testUtils.API.getApiQuery('slugs/app/cool app/'))
+            .set('Authorization', 'Bearer ' + accesstoken)
+            .expect('Content-Type', /json/)
             .expect(200)
             .end(function (err, res) {
                 if (err) {
                     return done(err);
                 }
-                
+
                 should.not.exist(res.headers['x-cache-invalidate']);
-                res.should.be.json;
                 var jsonResponse = res.body;
                 jsonResponse.should.exist;
                 jsonResponse.slugs.should.exist;
@@ -165,13 +131,14 @@ describe('Slug API', function () {
 
     it('should not be able to get a slug for an unknown type', function (done) {
         request.get(testUtils.API.getApiQuery('slugs/unknown/who knows/'))
+            .set('Authorization', 'Bearer ' + accesstoken)
+            .expect('Content-Type', /json/)
             .expect(400)
             .end(function (err, res) {
                 if (err) {
                     return done(err);
                 }
-                
-                res.should.be.json;
+
                 var jsonResponse = res.body;
                 jsonResponse.should.not.exist;
 

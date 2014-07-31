@@ -1,13 +1,8 @@
 import ghostPaths from 'ghost/utils/ghost-paths';
 
-// export default DS.FixtureAdapter.extend({});
-
 var ApplicationAdapter = DS.RESTAdapter.extend({
     host: window.location.origin,
     namespace: ghostPaths().apiRoot.slice(1),
-    headers: {
-        'X-CSRF-Token': $('meta[name="csrf-param"]').attr('content')
-    },
 
     findQuery: function (store, type, query) {
         var id;

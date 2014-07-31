@@ -1,15 +1,18 @@
-import AuthenticatedRoute from 'ghost/routes/authenticated';
+import loadingIndicator from 'ghost/mixins/loading-indicator';
+import ShortcutsRoute from 'ghost/mixins/shortcuts-route';
 
-var PostsPostRoute = AuthenticatedRoute.extend({
+var PostsPostRoute = Ember.Route.extend(SimpleAuth.AuthenticatedRouteMixin, loadingIndicator, ShortcutsRoute, {
     model: function (params) {
         var self = this,
             post,
-            postId;
+            postId,
+            paginationSettings;
 
         postId = Number(params.post_id);
 
-        if (!Number.isInteger(postId) || !Number.isFinite(postId) || postId <= 0) {
-            this.transitionTo('posts.index');
+        if (!_.isNumber(postId) || !_.isFinite(postId) || postId % 1 !== 0 || postId <= 0)
+        {
+            return this.transitionTo('error404', params.post_id);
         }
 
         post = this.store.getById('post', postId);
@@ -18,20 +21,47 @@ var PostsPostRoute = AuthenticatedRoute.extend({
             return post;
         }
 
-        return this.store.find('post', {
-            id: params.post_id,
+        paginationSettings = {
+            id: postId,
             status: 'all',
             staticPages: 'all'
-        }).then(function (records) {
-            var post = records.get('firstObject');
+        };
 
-            if (post) {
-                return post;
+        return this.store.find('user', 'me').then(function (user) {
+            if (user.get('isAuthor')) {
+                paginationSettings.author = user.get('slug');
             }
 
-            return self.transitionTo('posts.index');
+            return self.store.find('post', paginationSettings).then(function (records) {
+                var post = records.get('firstObject');
+
+                if (user.get('isAuthor') && post.isAuthoredByUser(user)) {
+                    // do not show the post if they are an author but not this posts author
+                    post = null;
+                }
+
+                if (post) {
+                    return post;
+                }
+
+                return self.transitionTo('posts.index');
+            });
         });
     },
+    setupController: function (controller, model) {
+        this._super(controller, model);
+
+        this.controllerFor('posts').set('currentPost', model);
+    },
+
+    shortcuts: {
+        'enter': 'openEditor'
+    },
+    actions: {
+        openEditor: function () {
+            this.transitionTo('editor.edit', this.get('controller.model'));
+        }
+    }
 });
 
 export default PostsPostRoute;

@@ -1,47 +1,19 @@
-import ajax from 'ghost/utils/ajax';
 import styleBody from 'ghost/mixins/style-body';
+import loadingIndicator from 'ghost/mixins/loading-indicator';
 
-var SignupRoute = Ember.Route.extend(styleBody, {
+var SignupRoute = Ember.Route.extend(styleBody, loadingIndicator, {
     classNames: ['ghost-signup'],
-
-    name: null,
-    email: null,
-    password: null,
-
-    actions: {
-        signup: function () {
-            var self = this,
-                controller = this.get('controller'),
-                data = controller.getProperties('name', 'email', 'password');
-
-            // TODO: Validate data
-
-            if (data.name && data.email && data.password) {
-                ajax({
-                    url: '/ghost/signup/',
-                    type: 'POST',
-                    headers: {
-                        'X-CSRF-Token': this.get('csrf')
-                    },
-                    data: data
-                }).then(function (resp) {
-                    if (resp && resp.userData) {
-                        self.store.pushPayload({ users: [resp.userData]});
-                        self.store.find('user', resp.userData.id).then(function (user) {
-                            self.send('signedIn', user);
-                            self.notifications.clear();
-                            self.transitionTo('posts');
-                        });
-                    } else {
-                        self.transitionTo('signin');
-                    }
-                }, function (resp) {
-                    self.notifications.showAPIError(resp);
-                });
-            } else {
-                this.notifications.showError('Must provide name, email and password');
-            }
+    beforeModel: function () {
+        if (this.get('session').isAuthenticated) {
+            this.notifications.showWarn('You need to sign out to register as a new user.', true);
+            this.transitionTo(SimpleAuth.Configuration.routeAfterAuthentication);
         }
+    },
+    setupController: function (controller, params) {
+        var tokenText = atob(params.token),
+            email = tokenText.split('|')[1];
+        controller.token = params.token;
+        controller.email = email;
     }
 });
 
